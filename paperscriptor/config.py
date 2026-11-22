@@ -46,6 +46,16 @@ OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "32768"))  # largest conte
 
 DEFAULT_WRITER = "thinkingmachines/inkling-2-small"
 DEFAULT_SEARCH = "thinkingmachines/inkling-2-small"  # accurate paper titles, cheap; openai/gpt-oss-20b is cheaper still
+# Short list shown in the model boxes (any OpenRouter model id can still be typed by hand)
+RECOMMENDED_MODELS = [
+    ("thinkingmachines/inkling-2-small", "Default · cheap, good quality"),
+    ("thinkingmachines/inkling-2-mini", "Cheaper Inkling"),
+    ("openai/gpt-oss-120b", "Very cheap"),
+    ("openai/gpt-oss-20b", "Very cheap"),
+    ("deepseek/deepseek-v4.1-flash", "Cheapest"),
+    ("google/gemini-3.1-pro-preview", "Best writing · about $1–2 per paper"),
+    ("anthropic/claude-sonnet-5.5", "Best writing · about $1–2 per paper"),
+]
 TEMPLATE_LABELS = {
     "iclr2025": "ICLR 2025",
     "cvpr2025": "CVPR 2025",

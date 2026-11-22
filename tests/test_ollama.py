@@ -110,7 +110,10 @@ class Tags:
 orig_get = server.requests.get
 server.requests.get = lambda url, timeout=None: Tags() if "/api/tags" in url else (_ for _ in ()).throw(Exception("offline"))
 m = c.get("/api/models").json()
-assert m["local"] == ["ollama/llama3.1:8b", "ollama/qwen3:14b"] and m["models"][:2] == m["local"], m
+assert m["local"] == ["ollama/llama3.1:8b", "ollama/qwen3:14b"], m
+assert [x["id"] for x in m["models"][:2]] == m["local"] and m["models"][0]["label"].startswith("Local"), m
+assert [x["id"] for x in m["models"][2:]] == [i for i, _ in config.RECOMMENDED_MODELS]          # short list, no full catalog
+assert not any("gemini-3-flash" in x["id"] for x in m["models"])
 server.requests.get = orig_get
 
 print("ALL OLLAMA TESTS PASSED")

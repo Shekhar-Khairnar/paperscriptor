@@ -26,6 +26,7 @@
     $("template").innerHTML = cfg.templates.map(t => `<option value="${t.id}">${t.label}</option>`).join("")
       + `<option value="__custom__">My own LaTeX template…</option>`;
     $("writer_model").value = store.get("writer_model") || cfg.default_writer;
+    if (OLD_DEFAULTS.includes(store.get("search_model"))) store.del("search_model");  // forget an old default
     $("search_model").value = store.get("search_model") || cfg.default_search;
     $("cutoff").value = store.get("cutoff") || cfg.default_cutoff;
     $("envHint").hidden = !cfg.env_key;
@@ -42,7 +43,7 @@
     syncWebToggle();
     syncTemplate();
     fetch("/api/models").then(r => r.json()).then(d => {
-      $("models").innerHTML = d.models.map(m => `<option value="${m}">`).join("");
+      $("models").innerHTML = d.models.map(m => `<option value="${escapeHtml(m.id)}" label="${escapeHtml(m.label)}"></option>`).join("");
       if (d.local && d.local.length) {
         $("localHint").textContent = `Local models found: ${d.local.slice(0, 3).join(", ")}${d.local.length > 3 ? "…" : ""}`;
       }
@@ -423,6 +424,7 @@
   // Papers list and import
   // =====================================================================
   let defaultModel = "";
+  const OLD_DEFAULTS = ["google/gemini-3-flash-preview"];
   async function loadPapers() {
     const d = await fetch("/api/projects").then(r => r.json()).catch(() => ({ projects: [] }));
     const ul = $("papers"); ul.innerHTML = "";

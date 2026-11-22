@@ -46,7 +46,6 @@ async def no_stale_ui(request: Request, call_next):
     if request.url.path == "/" or request.url.path.startswith("/static/"):
         response.headers["Cache-Control"] = "no-cache"
     return response
-_models_cache = {"at": 0.0, "data": []}
 
 
 @app.get("/")
@@ -82,18 +81,11 @@ def local_models() -> list[str]:
 
 @app.get("/api/models")
 def models():
-    """Model picker: local Ollama models first, then the public OpenRouter list (cached for an hour)."""
-    if time.time() - _models_cache["at"] > 3600:
-        try:
-            data = requests.get("https://openrouter.ai/api/v1/models", timeout=20).json()["data"]
-            _models_cache["data"] = sorted(
-                (m["id"] for m in data if "text" in (m.get("architecture") or {}).get("output_modalities", ["text"])),
-            )
-            _models_cache["at"] = time.time()
-        except Exception:
-            pass
+    """Model boxes: your local Ollama models first, then a short list of recommended OpenRouter models."""
     local = local_models()
-    return {"models": local + _models_cache["data"], "local": local}
+    items = [{"id": m, "label": "Local · free, private"} for m in local]
+    items += [{"id": m, "label": label} for m, label in config.RECOMMENDED_MODELS]
+    return {"models": items, "local": local}
 
 
 def _safe_name(name: str, used: set) -> str:
