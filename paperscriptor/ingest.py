@@ -259,7 +259,10 @@ def unpack_project(uploads: list[tuple[str, bytes]], dest: str) -> str:
     tops = {k.split("/", 1)[0] for k in files}
     if len(tops) == 1 and all("/" in k for k in files):
         files = _strip_prefix(files, tops.pop() + "/")
-    main = _pick_main(files)  # paths stay relative to the project root, as on Overleaf
+    try:
+        main = _pick_main(files)  # paths stay relative to the project root, as on Overleaf
+    except InputError:
+        raise InputError(_no_main_message(files))
     for rel, data in files.items():
         path = os.path.join(dest, *rel.split("/"))
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -355,3 +358,20 @@ def collect_folder(folder: str) -> dict:
     if figs:
         notes.append(f"{len(figs)} figure(s): " + ", ".join(f"{n}{'' if c else ' (no caption)'}" for n, _, c in figs))
     return {"documents": docs, "figures": figs, "skipped": skipped, "notes": notes}
+
+
+def _no_main_message(files: dict[str, bytes]) -> str:
+    """Explain why an upload can't be opened as a LaTeX project, and what to do instead."""
+    names = sorted(files, key=str.lower)
+    shown = ", ".join(posixpath.basename(n) for n in names[:6]) + (f" and {len(names) - 6} more" if len(names) > 6 else "")
+    tex = [n for n in names if n.lower().endswith(".tex")]
+    zips = [n for n in names if n.lower().endswith(".zip")]
+    if zips:
+        found = f"The upload contains another .zip ({posixpath.basename(zips[0])}). Unzip it first, or upload that inner .zip."
+    elif tex:
+        found = (f"Found {len(tex)} .tex file(s) ({', '.join(posixpath.basename(t) for t in tex[:3])}), but none starts a "
+                 "document with \\documentclass, so there is no main file to compile.")
+    else:
+        found = f"This upload has no .tex files (it has: {shown})."
+    return (f"{found} 'Open a LaTeX project' is for an existing LaTeX project, such as an Overleaf download. "
+            "To write a new paper from notes, results and figures, use 'Add a whole folder' under Your research instead.")
