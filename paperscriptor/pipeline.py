@@ -91,6 +91,39 @@ def fix_citations(tex: str, valid_keys: set, job: Job) -> str:
 # --------------------------------------------------------------------------- #
 # Literature agent helpers (ported from HybridLiteratureAgent)
 # --------------------------------------------------------------------------- #
+def limit_search_tasks(tasks: list, limit: int) -> list:
+    """Keep at most `limit` searches: drop near-duplicates, then prefer must-have citations, then the
+    introduction, then related work, taking them round-robin across sections so no section is left out."""
+    seen, unique = set(), []
+    for t in tasks:
+        key = _norm(t.get("focus", ""))
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(t)
+    if limit <= 0 or len(unique) <= limit:
+        return unique
+    rank = lambda t: 0 if t["search_type"] == "targeted" else 1 if t["section"] == "Introduction" else 2
+    groups: dict = {}
+    for t in sorted(unique, key=rank):
+        groups.setdefault((rank(t), t["section"]), []).append(t)
+    picked = []
+    for level in (0, 1, 2):
+        lanes = [g for (r, _), g in groups.items() if r == level]
+        while lanes and len(picked) < limit:
+            for g in list(lanes):
+                if g and len(picked) < limit:
+                    picked.append(g.pop(0))
+                if not g:
+                    lanes.remove(g)
+    return picked
+
+
+def over_budget(job: Job, cfg: dict, share: float = 1.0) -> bool:
+    """True once the run has spent `share` of its spending limit (0 or missing = no limit)."""
+    budget = float(cfg.get("budget") or 0)
+    return budget > 0 and job.cost >= budget * share
+
+
 def collect_search_tasks(outline: dict) -> list:
     tasks = []
     plan = outline.get("intro_related_work_plan", {}) or {}
@@ -250,7 +283,7 @@ def run_pipeline(job: Job, cfg: dict):
         job.log(f"Finished. Total OpenRouter cost: ${job.cost:.4f}. Output folder: {job.run_dir}")
     except Cancelled:
         job.status = "cancelled"
-        job.log("Cancelled.")
+        job.log(f"Cancelled. OpenRouter cost so far: ${job.cost:.4f}.")
     except Exception as e:
         job.status = "error"
         job.error = str(e)
@@ -304,10 +337,13 @@ def _run(job: Job, cfg: dict):
     papers: list = []
     current_tex = template_tex
     if cfg["use_literature"]:
-        tasks = collect_search_tasks(outline)
-        job.log(f"Step 2/5 · Literature agent: {len(tasks)} search tasks ({searcher}"
-                f"{', web search on' if cfg['use_web'] else ''})")
-        found = []
+        planned = collect_search_tasks(outline)
+        limit = int(cfg.get("max_searches") or 0)
+        tasks = limit_search_tasks(planned, limit)
+        trimmed = f" (the {len(tasks)} most important of {len(planned)} planned, to keep cost down)" if len(tasks) < len(planned) else ""
+        job.log(f"Step 2/5 · Literature agent: {len(tasks)} searches{trimmed} ({searcher}"
+                f"{', web search on, about $0.012 each' if cfg['use_web'] else ''})")
+        found, stopped = [], False
         with ThreadPoolExecutor(max_workers=6) as ex:
             futs = {ex.submit(discover_candidates, llm, searcher, t, outline, cutoff, cfg["use_web"]): t for t in tasks}
             for i, fut in enumerate(as_completed(futs), 1):
@@ -320,7 +356,13 @@ def _run(job: Job, cfg: dict):
                 except Exception as e:
                     job.log(f"  Search failed for '{t['focus'][:60]}': {e}")
                 if i % 5 == 0 or i == len(tasks):
-                    job.log(f"  Searched {i}/{len(tasks)} tasks, {len(found)} candidates so far.")
+                    job.log(f"  Searched {i}/{len(tasks)}, {len(found)} candidates so far (cost ${job.cost:.2f}).")
+                if not stopped and over_budget(job, cfg, 0.6):
+                    stopped = True
+                    for f in futs:
+                        f.cancel()
+                    job.log(f"  Stopping the search early: ${job.cost:.2f} spent, 60% of the ${float(cfg['budget']):.2f} "
+                            "spending limit. Writing continues with the papers found so far.")
 
         # De-duplicate candidates before verifying them
         seen, unique = set(), []
@@ -481,6 +523,10 @@ Here are the input materials for the paper.
             citations_json = json.dumps(citation_map, indent=2)
             for i in range(1, rounds + 1):
                 job.check()
+                if over_budget(job, cfg):
+                    job.log(f"  Skipping the remaining review rounds: ${job.cost:.2f} reached the "
+                            f"${float(cfg['budget']):.2f} spending limit.")
+                    break
                 user = f"""
 REFLECTION ITERATION {i}.
 

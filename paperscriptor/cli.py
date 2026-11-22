@@ -148,7 +148,8 @@ def cmd_write(args):
         job, cfg = server.prepare_run(
             api_key=need_key(args, args.writer, *([] if args.no_literature else [args.searcher])), writer_model=args.writer, search_model=args.searcher, template=template,
             template_rules=args.rules or "", cutoff=args.cutoff or "", use_literature=not args.no_literature,
-            use_web=not args.no_web and not args.no_literature, refine_rounds=args.rounds,
+            use_web=args.web and not args.no_literature, refine_rounds=args.rounds,
+            max_searches=args.max_searches, budget=args.budget,
             s2_api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""), openalex_api_key=os.environ.get("OPENALEX_API_KEY", ""),
             materials={"idea": "\n\n".join(idea_parts), "experimental_log": "\n\n".join(log_parts), "documents": docs},
             figures=figures, template_uploads=uploads)
@@ -360,7 +361,12 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--cutoff", help="only cite papers up to this month, e.g. 2025-06")
     w.add_argument("--rounds", type=int, default=1, help="review-and-refine rounds, 0 to 3 (default 1)")
     w.add_argument("--no-literature", action="store_true", help="don't search for and cite papers")
-    w.add_argument("--no-web", action="store_true", help="don't use web search when finding papers")
+    w.add_argument("--web", action="store_true",
+                   help="use web search when finding papers (about $0.012 per search; off by default)")
+    w.add_argument("--no-web", action="store_true", help=argparse.SUPPRESS)  # web search is off by default now
+    w.add_argument("--max-searches", type=int, default=20, help="most paper searches to run (default 20)")
+    w.add_argument("--budget", type=float, default=1.0,
+                   help="spending limit in USD; optional steps stop when it is reached (default 1.00, 0 = none)")
     w.set_defaults(func=cmd_write)
 
     i = sub.add_parser("import", help="import an existing LaTeX project (Overleaf .zip, folder or files)")

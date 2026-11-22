@@ -55,7 +55,7 @@
   }
 
   // ---------- drafts ----------
-  const DRAFT_FIELDS = ["idea", "experimental_log", "template", "refine_rounds", "template_rules"];
+  const DRAFT_FIELDS = ["idea", "experimental_log", "template", "refine_rounds", "template_rules", "max_searches", "budget"];
   for (const id of DRAFT_FIELDS) {
     $(id).addEventListener("input", () => store.set("draft_" + id, $(id).value));
   }
@@ -306,6 +306,8 @@
     fd.append("use_literature", $("use_literature").checked);
     fd.append("use_web", $("use_literature").checked && $("use_web").checked);
     fd.append("refine_rounds", $("refine_rounds").value);
+    fd.append("max_searches", String(parseInt($("max_searches").value, 10) || 20));
+    fd.append("budget", String(Math.max(0, parseFloat($("budget").value) || 0)));
     fd.append("s2_api_key", $("s2_api_key").value.trim());
     fd.append("openalex_api_key", $("openalex_api_key").value.trim());
     fd.append("captions", JSON.stringify(figures.map(f => f.caption)));

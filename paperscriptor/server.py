@@ -122,7 +122,8 @@ class RunError(ValueError):
 
 
 def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT_SEARCH, template="iclr2025",
-                template_rules="", cutoff="", use_literature=True, use_web=True, refine_rounds=1,
+                template_rules="", cutoff="", use_literature=True, use_web=False, refine_rounds=1,
+                max_searches=20, budget=1.0,
                 s2_api_key="", openalex_api_key="", materials=None, figures=(), template_uploads=()):
     """Validate the inputs, create the run folder and return (job, cfg). Shared by the web app and the CLI.
     materials: {idea, experimental_log, documents: [{name, role, text}]}
@@ -196,6 +197,8 @@ def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT
         "use_literature": use_literature,
         "use_web": use_web,
         "refine_rounds": max(0, min(3, int(refine_rounds))),
+        "max_searches": max(0, min(200, int(max_searches))),
+        "budget": max(0.0, float(budget)),
         "s2_api_key": (s2_api_key or "").strip() or os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""),
         "openalex_api_key": (openalex_api_key or "").strip() or os.environ.get("OPENALEX_API_KEY", ""),
         "figures": fig_info,
@@ -223,8 +226,10 @@ async def create_job(
     template_rules: str = Form(""),
     cutoff: str = Form(""),
     use_literature: bool = Form(True),
-    use_web: bool = Form(True),
+    use_web: bool = Form(False),
     refine_rounds: int = Form(1),
+    max_searches: int = Form(20),
+    budget: float = Form(1.0),
     s2_api_key: str = Form(""),
     openalex_api_key: str = Form(""),
     captions: str = Form("[]"),
@@ -253,7 +258,8 @@ async def create_job(
     try:
         job, cfg = prepare_run(api_key=api_key, writer_model=writer_model, search_model=search_model, template=template,
                                template_rules=template_rules, cutoff=cutoff, use_literature=use_literature,
-                               use_web=use_web, refine_rounds=refine_rounds, s2_api_key=s2_api_key,
+                               use_web=use_web, refine_rounds=refine_rounds, max_searches=max_searches,
+                               budget=budget, s2_api_key=s2_api_key,
                                openalex_api_key=openalex_api_key, materials=mat, figures=figs,
                                template_uploads=uploads)
     except RunError as e:

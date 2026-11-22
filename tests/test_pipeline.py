@@ -40,7 +40,7 @@ def fake_post(url, headers=None, json=None, timeout=None):
                 "related_work_strategy": {"subsections": [{"subsection_title": "2.1 Attention", "limitation_search_queries": ["attention limits"]}]}},
             "section_plan": [{"section_title": "Experiments", "subsections": [{"subsection_title": "Setup", "content_bullets": ["x"], "citation_hints": ["He et al. (Deep Residual Learning)"]}]}]}) + "\n```")
     if not system and "CANDIDATE" not in str(user) and "candidates" in str(user):
-        assert json.get("plugins") == [{"id": "web", "max_results": 5}]
+        assert json.get("plugins") == [{"id": "web", "max_results": 3}]
         return ok('```json\n{"section_name":"s","candidates":[{"title":"Deep Residual Learning for Image Recognition","year":2016,"reason":"r"},{"title":"Attention Is All You Need","year":2017,"reason":"r"},{"title":"A Totally Made Up Paper","year":2020,"reason":"r"}]}\n```')
     if system.startswith("Role: Senior AI Researcher.\nTask: Write the introduction"):
         assert "He2016DeepResidual" in user and "Made Up" not in user

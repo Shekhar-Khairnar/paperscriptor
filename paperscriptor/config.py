@@ -45,7 +45,7 @@ OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/") 
 OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "32768"))  # largest context window to request
 
 DEFAULT_WRITER = "thinkingmachines/inkling-2-small"
-DEFAULT_SEARCH = "google/gemini-3-flash-preview"
+DEFAULT_SEARCH = "thinkingmachines/inkling-2-small"  # accurate paper titles, cheap; openai/gpt-oss-20b is cheaper still
 TEMPLATE_LABELS = {
     "iclr2025": "ICLR 2025",
     "cvpr2025": "CVPR 2025",

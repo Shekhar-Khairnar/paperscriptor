@@ -165,9 +165,21 @@
           <span><b>Find and cite real papers</b><small>Suggested papers are checked against Semantic Scholar (OpenAlex as backup), and only papers that exist are cited. This adds a few minutes.</small></span>
         </label>
         <label class="check">
-          <input type="checkbox" id="use_web" checked>
-          <span><b>Use web search when finding papers</b><small>Better, more recent results. OpenRouter charges a small fee per search, about $0.02.</small></span>
+          <input type="checkbox" id="use_web">
+          <span><b>Use web search when finding papers</b><small>Finds more recent papers. Costs about $0.012 per search, so up to about $0.25 per paper. Off by default; papers are still found and checked for free without it.</small></span>
         </label>
+        <div class="row two">
+          <div class="field">
+            <label for="max_searches">Paper searches (most)</label>
+            <input type="text" id="max_searches" inputmode="numeric" value="20">
+            <p class="hint">The most important searches run first. Fewer searches cost less.</p>
+          </div>
+          <div class="field">
+            <label for="budget">Spending limit ($)</label>
+            <input type="text" id="budget" inputmode="decimal" value="1.00">
+            <p class="hint">Optional steps stop when this is reached. 0 means no limit.</p>
+          </div>
+        </div>
         <div class="field" style="max-width:280px">
           <label for="refine_rounds">Review and refine rounds</label>
           <select id="refine_rounds">

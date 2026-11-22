@@ -20,7 +20,7 @@ Built on Google Research's [PaperOrchestra](https://github.com/google-research/p
 | 🔎 **Real references only** | Every citation is checked on Semantic Scholar / OpenAlex. Papers that don't exist never reach your `.bib`. |
 | 💬 **Edit by chatting** | "Shorten the abstract", "address reviewer 2", "add citations here": it edits several files at once and shows the diff. |
 | 📄 **A full LaTeX editor** | File tree, code editor, live PDF, double-click the PDF to jump to the source, versions and undo. |
-| 🔒 **Private by design** | Runs on `127.0.0.1`. Use local models through Ollama and your unpublished data never leaves your machine, or cloud models at about **$1** per paper. |
+| 🔒 **Private by design** | Runs on `127.0.0.1`. Use local models through Ollama and your unpublished data never leaves your machine, or cloud models at about **$0.10** per paper. |
 
 ![The editor: files, source, PDF and chat](docs/screenshots/editor.png)
 
@@ -97,10 +97,14 @@ changes that would break the document, removes invented citation keys, saves a v
 
 ## Cost
 
-| | `inkling-2-small` (default) | `gemini-3.1-pro` |
-|---|---|---|
-| Full paper | ~$0.70–1.00 | ~$1.50–3.00 |
-| Chat edit | ~$0.0005 | ~$0.01 |
+| | `inkling-2-small` (default) | `gemini-3.1-pro` | `ollama/...` (local) |
+|---|---|---|---|
+| Full paper | ~$0.05–0.15 | ~$1.00–2.00 | free |
+| Chat edit | ~$0.0005 | ~$0.01 | free |
+
+Built-in limits keep costs predictable: at most **20 paper searches** (the most important first), web search
+**off** by default (turn it on for newer papers, about $0.25 more), and a **$1 spending limit** per paper that
+stops optional steps. All three can be changed in Settings or with `--max-searches`, `--web` and `--budget`.
 
 Local models through Ollama cost nothing but need a capable machine. 14B+ models work best for writing; smaller
 ones are fine for quick edits.
@@ -121,8 +125,8 @@ Set in `.env`:
 | Variable | Purpose |
 |---|---|
 | `OPENROUTER_API_KEY` | Your OpenRouter key |
-| `SEMANTIC_SCHOLAR_API_KEY` | Faster reference checks ([get one](https://www.semanticscholar.org/product/api)) |
-| `OPENALEX_API_KEY` | Higher limit for the backup database ([get one](https://openalex.org/settings/api)) |
+| `SEMANTIC_SCHOLAR_API_KEY` | **Recommended.** Without it, reference checks share a busy public limit ([free key](https://www.semanticscholar.org/product/api)) |
+| `OPENALEX_API_KEY` | **Recommended.** Raises the backup database's small free daily limit ([free key](https://openalex.org/settings/api)) |
 | `OLLAMA_URL` | Local Ollama server (default `http://127.0.0.1:11434`) |
 | `OLLAMA_NUM_CTX` | Largest context window for local models (default 32768) |
 | `PORT` | Web app port (default 8000) |

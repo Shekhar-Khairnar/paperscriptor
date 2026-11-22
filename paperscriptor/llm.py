@@ -130,7 +130,7 @@ class LLM:
             "usage": {"include": True},
         }
         if web:
-            body["plugins"] = [{"id": "web", "max_results": 5}]
+            body["plugins"] = [{"id": "web", "max_results": 3}]  # 3 results = about $0.012 per search
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
