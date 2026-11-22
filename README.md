@@ -1,7 +1,7 @@
-# Paper Orchestra Local
+# PaperScriptor
 
 Write a research paper from your notes and results, then keep improving it by chatting with an AI, all on your
-own computer.
+own computer. (*Scriptor* is Latin for "writer".)
 
 You give it your idea, your experiment results and (optionally) a LaTeX template. A team of AI "agents" plans the
 paper, finds and checks real references, writes every section in LaTeX, reviews the draft and revises it. Then you
@@ -175,9 +175,9 @@ Run the tests with `pip install -r requirements-dev.txt`, then `python tests/tes
 If you use this software, please cite it:
 
 ```bibtex
-@software{khairnar2026paperorchestralocal,
+@software{khairnar2026paperscriptor,
   author  = {Khairnar, Shekhar Madhav},
-  title   = {Paper Orchestra Local: a local web app and CLI for writing and editing LaTeX research papers with LLMs},
+  title   = {PaperScriptor: a local web app and CLI for writing and editing LaTeX research papers with LLMs},
   year    = {2026},
   version = {1.0.0}
 }

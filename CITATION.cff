@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below, and please also cite the PaperOrchestra paper it builds on."
-title: "Paper Orchestra Local: a local web app and CLI for writing and editing LaTeX research papers with LLMs"
+title: "PaperScriptor: a local web app and CLI for writing and editing LaTeX research papers with LLMs"
 type: software
 authors:
   - family-names: Khairnar

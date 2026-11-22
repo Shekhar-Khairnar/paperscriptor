@@ -65,7 +65,7 @@ def _code_stamp() -> str:
 
 
 LOADED_CODE = _code_stamp()
-app = FastAPI(title="Paper Orchestra Local")
+app = FastAPI(title="PaperScriptor")
 JOBS: dict[str, pipeline.Job] = {}
 _models_cache = {"at": 0.0, "data": []}
 
@@ -490,7 +490,7 @@ def latex_setup():
 
 def serve(port: int = PORT, open_browser: bool = True):
     url = f"http://{HOST}:{port}"
-    print(f"\n  Paper Orchestra Local is running at {url}\n  Outputs are saved in {RUNS_DIR}\n")
+    print(f"\n  PaperScriptor is running at {url}\n  Outputs are saved in {RUNS_DIR}\n")
     if open_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     uvicorn.run(app, host=HOST, port=port, log_level="warning")

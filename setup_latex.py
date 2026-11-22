@@ -2,7 +2,7 @@
 
 If MiKTeX, TeX Live or Tectonic is already installed, nothing happens. Otherwise Tectonic (a free, single-file
 LaTeX engine, about 21 MB) is downloaded from its official GitHub release into tools/tectonic and checked against
-its published SHA-256 checksum. Set PAPER_ORCHESTRA_NO_LATEX=1 to skip this.
+its published SHA-256 checksum. Set PAPERSCRIPTOR_NO_LATEX=1 to skip this.
 """
 
 import os
@@ -12,7 +12,7 @@ import latex
 
 
 def main() -> int:
-    if os.environ.get("PAPER_ORCHESTRA_NO_LATEX") == "1":
+    if os.environ.get("PAPERSCRIPTOR_NO_LATEX") == "1":
         return 0
     found = latex.engine()
     if found:

@@ -1,4 +1,4 @@
-"""Command-line interface for Paper Orchestra Local. Everything the web app does, from a terminal.
+"""Command-line interface for PaperScriptor. Everything the web app does, from a terminal.
 
 Examples
   python cli.py write --idea notes.md --log results.csv --template nature
@@ -321,7 +321,7 @@ def cmd_serve(args):
 
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="python cli.py", description="Paper Orchestra Local from the command line.",
+    p = argparse.ArgumentParser(prog="python cli.py", description="PaperScriptor from the command line.",
                                 formatter_class=argparse.RawDescriptionHelpFormatter,
                                 epilog='PROJECT can be "last", a full id from `list`, or its start or end (e.g. the last 8 characters).')
     p.add_argument("--api-key", help="OpenRouter key (default: OPENROUTER_API_KEY or .env)")

@@ -137,7 +137,7 @@ class LLM:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "http://localhost",
-            "X-Title": "Paper Orchestra Local",
+            "X-Title": "PaperScriptor",
         }
 
         last_err = "unknown error"
@@ -195,7 +195,7 @@ class LLM:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "http://localhost",
-            "X-Title": "Paper Orchestra Local",
+            "X-Title": "PaperScriptor",
         }
         fallback = lambda: self.chat(model, system, user, temperature=temperature, history=history)
         for _ in range(2):
