@@ -2,11 +2,9 @@
 .venv/
 __pycache__/
 runs/
-_reference/
 tools/
 *.pyc
 build/
-.claude/
 *.synctex.gz
 .DS_Store
 Thumbs.db
