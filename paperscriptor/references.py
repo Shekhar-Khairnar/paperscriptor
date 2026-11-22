@@ -68,7 +68,7 @@ def s2_lookup(title, year_hint, cutoff, s2_key, job):
     params = {
         "query": title,
         "limit": 3,
-        "fields": "title,authors,venue,year,abstract,citationCount,journal,publicationDate",
+        "fields": "title,authors,venue,year,abstract,tldr,citationCount,journal,publicationDate",
     }
     for attempt in range(3):
         job.check()
@@ -83,6 +83,8 @@ def s2_lookup(title, year_hint, cutoff, s2_key, job):
         if r.status_code != 200:
             return None, "error"
         best = _best_match(title, year_hint, cutoff, r.json().get("data") or [])
+        if best and not best.get("abstract") and (best.get("tldr") or {}).get("text"):
+            best = {**best, "abstract": best["tldr"]["text"]}  # many journals withhold abstracts; S2's TLDR helps
         return best, ("ok" if best else "nomatch")
     return None, "ratelimited"
 
@@ -155,10 +157,16 @@ def _safe(lookup, *args):
         return None, "error"
 
 
+def _strong_title(asked: str, found: str) -> bool:
+    return difflib.SequenceMatcher(None, _norm(asked), _norm(found)).ratio() >= 0.9
+
+
 def verify_paper(title, year_hint, cfg, state, job):
     """Semantic Scholar first; OpenAlex when S2 finds nothing, lacks an abstract, or is rate-limiting.
-    Returns (paper, source_name) or (None, None)."""
+    A paper found without any abstract is still kept when its title matches almost exactly (it exists;
+    the writer just gets less context). Returns (paper, source_name) or (None, None)."""
     cutoff = cfg["cutoff"]
+    no_abstract = None
     if not state["s2_down"]:
         paper, status = _safe(s2_lookup, title, year_hint, cutoff, cfg.get("s2_api_key"), job)
         time.sleep(1.1)  # stay under 1 request/second
@@ -171,6 +179,8 @@ def verify_paper(title, year_hint, cfg, state, job):
             state["s2_streak"] = 0
         if paper and paper.get("abstract"):
             return paper, "Semantic Scholar"
+        if paper:
+            no_abstract = (paper, "Semantic Scholar")
     if not state["oa_down"]:
         paper, status = _safe(openalex_lookup, title, year_hint, cutoff, cfg.get("openalex_api_key"), job)
         time.sleep(0.2)
@@ -180,6 +190,10 @@ def verify_paper(title, year_hint, cfg, state, job):
                     "(https://openalex.org/settings/api).")
         if paper and paper.get("abstract"):
             return paper, "OpenAlex"
+        if paper and not no_abstract:
+            no_abstract = (paper, "OpenAlex")
+    if no_abstract and _strong_title(title, no_abstract[0].get("title") or ""):
+        return {**no_abstract[0], "abstract": no_abstract[0].get("abstract") or ""}, no_abstract[1]
     return None, None
 
 
