@@ -275,8 +275,9 @@ def chat(run: str, message: str, selection: str, open_path: str, model: str, api
     message = (message or "").strip()
     if not message:
         raise WorkspaceError("Type a request first.")
-    if not api_key:
-        raise WorkspaceError("Add your OpenRouter API key on the main page, or put it in the .env file.")
+    if not api_key and not llm.is_local(model):
+        raise WorkspaceError("Add your OpenRouter API key on the main page or in the .env file, "
+                             "or use a local model (ollama/<model>).")
     with _busy_guard:
         if pid in _busy:
             raise WorkspaceError("Still working on the previous request.", 409)

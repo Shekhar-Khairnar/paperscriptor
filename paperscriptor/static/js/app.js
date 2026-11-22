@@ -43,6 +43,9 @@
     syncTemplate();
     fetch("/api/models").then(r => r.json()).then(d => {
       $("models").innerHTML = d.models.map(m => `<option value="${m}">`).join("");
+      if (d.local && d.local.length) {
+        $("localHint").textContent = `Local models found: ${d.local.slice(0, 3).join(", ")}${d.local.length > 3 ? "…" : ""}`;
+      }
     }).catch(() => {});
     defaultModel = cfg.default_writer;
     const last = (location.hash.match(/run=(\w+)/) || [])[1] || store.get("job_id");

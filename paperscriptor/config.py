@@ -40,6 +40,10 @@ RUNS_DIR = os.path.join(HOME, "runs")
 TOOLS_DIR = os.path.join(HOME, "tools")
 HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8000"))
 
+# Local models: write "ollama/<model>" (e.g. ollama/qwen3:14b) in any model field. No API key is needed for them.
+OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")  # 127.0.0.1: "localhost" can stall on Windows
+OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "32768"))  # largest context window to request
+
 DEFAULT_WRITER = "thinkingmachines/inkling-2-small"
 DEFAULT_SEARCH = "google/gemini-3-flash-preview"
 TEMPLATE_LABELS = {

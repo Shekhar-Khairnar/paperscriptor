@@ -67,12 +67,22 @@ def get_config():
         "env_key": bool(os.environ.get("OPENROUTER_API_KEY")),
         "runs_dir": config.RUNS_DIR,
         "restart_needed": _code_stamp() != LOADED_CODE,
+        "ollama_url": config.OLLAMA_URL,
     }
+
+
+def local_models() -> list[str]:
+    """Models installed in the local Ollama server, as "ollama/<name>" (empty if Ollama isn't running)."""
+    try:
+        tags = requests.get(f"{config.OLLAMA_URL}/api/tags", timeout=0.8).json().get("models") or []
+        return sorted(llm.LOCAL_PREFIX + m["name"] for m in tags if m.get("name"))
+    except Exception:
+        return []
 
 
 @app.get("/api/models")
 def models():
-    """Public OpenRouter model list (cached for an hour) for the model picker."""
+    """Model picker: local Ollama models first, then the public OpenRouter list (cached for an hour)."""
     if time.time() - _models_cache["at"] > 3600:
         try:
             data = requests.get("https://openrouter.ai/api/v1/models", timeout=20).json()["data"]
@@ -82,7 +92,8 @@ def models():
             _models_cache["at"] = time.time()
         except Exception:
             pass
-    return {"models": _models_cache["data"]}
+    local = local_models()
+    return {"models": local + _models_cache["data"], "local": local}
 
 
 def _safe_name(name: str, used: set) -> str:
@@ -117,8 +128,9 @@ def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT
     materials: {idea, experimental_log, documents: [{name, role, text}]}
     figures: [(filename, bytes, caption)]; template_uploads: [(path, bytes)] when template == "__custom__"."""
     api_key = (api_key or "").strip() or os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        raise RunError("Add your OpenRouter API key.")
+    all_local = llm.is_local(writer_model or DEFAULT_WRITER) and (not use_literature or llm.is_local(search_model or DEFAULT_SEARCH))
+    if not api_key and not all_local:
+        raise RunError("Add your OpenRouter API key, or use local models (ollama/<model>) for every step.")
     mat = materials or {}
     try:
         idea, experimental_log = ingest.combine_materials(

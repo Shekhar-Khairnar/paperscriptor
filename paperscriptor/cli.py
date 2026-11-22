@@ -13,6 +13,7 @@ Examples
   paperscriptor undo last
   paperscriptor export last -o paper.zip
   paperscriptor serve
+  paperscriptor ask last "Tighten the intro" --model ollama/qwen3:14b   # fully local
 
 PROJECT can be "last" (the most recently changed paper), a full id from `list`, or its start or end
 (e.g. the last 8 characters).
@@ -26,7 +27,7 @@ import sys
 import threading
 import time
 
-from . import config, ingest, latex, pipeline, server, workspace
+from . import config, ingest, latex, llm, pipeline, server, workspace
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -81,10 +82,12 @@ def guess_role(name: str) -> str:
                                   name, re.I) else "idea"
 
 
-def need_key(args) -> str:
+def need_key(args, *models) -> str:
+    """The OpenRouter key; not needed when every model used is local (ollama/<model>)."""
     key = (args.api_key or os.environ.get("OPENROUTER_API_KEY", "")).strip()
-    if not key:
-        raise CliError("No OpenRouter key. Pass --api-key, set OPENROUTER_API_KEY, or put it in the .env file.")
+    if not key and not (models and all(llm.is_local(m) for m in models)):
+        raise CliError("No OpenRouter key. Pass --api-key, set OPENROUTER_API_KEY or put it in .env, "
+                       "or use local models (ollama/<model>).")
     return key
 
 
@@ -137,7 +140,7 @@ def cmd_write(args):
         template = "__custom__"
     try:
         job, cfg = server.prepare_run(
-            api_key=need_key(args), writer_model=args.writer, search_model=args.searcher, template=template,
+            api_key=need_key(args, args.writer, *([] if args.no_literature else [args.searcher])), writer_model=args.writer, search_model=args.searcher, template=template,
             template_rules=args.rules or "", cutoff=args.cutoff or "", use_literature=not args.no_literature,
             use_web=not args.no_web and not args.no_literature, refine_rounds=args.rounds,
             s2_api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""), openalex_api_key=os.environ.get("OPENALEX_API_KEY", ""),
@@ -211,6 +214,16 @@ def cmd_list(args):
     return 0
 
 
+def cmd_models(args):
+    local = server.local_models()
+    if not local:
+        print(f"No local models found at {config.OLLAMA_URL}. Install Ollama, then e.g.:  ollama pull qwen3:14b")
+    for m in local:
+        print(m)
+    print("\nAny OpenRouter model id also works, e.g. " + config.DEFAULT_WRITER)
+    return 0
+
+
 def cmd_files(args):
     d = workspace.summary(resolve(args.project))
     for f in d["files"]:
@@ -228,7 +241,7 @@ def cmd_ask(args):
     def work():
         try:
             result["d"] = workspace.chat(run, args.message, args.selection or "", args.file or "", model,
-                                         need_key(args), attachments)
+                                         need_key(args, model), attachments)
         except (workspace.WorkspaceError, CliError) as e:
             error["e"] = str(e)
 
@@ -334,7 +347,8 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--template", default="iclr2025",
                    help="iclr2025, cvpr2025, nature, or a path to your own template (.zip, folder or .tex)")
     w.add_argument("--rules", help="formatting rules for your own template, e.g. '8 pages max'")
-    w.add_argument("--writer", default=config.DEFAULT_WRITER, help=f"writing model (default {config.DEFAULT_WRITER})")
+    w.add_argument("--writer", default=config.DEFAULT_WRITER,
+                   help=f"writing model (default {config.DEFAULT_WRITER}); ollama/<model> runs locally")
     w.add_argument("--searcher", default=config.DEFAULT_SEARCH, help=f"paper-search model (default {config.DEFAULT_SEARCH})")
     w.add_argument("--cutoff", help="only cite papers up to this month, e.g. 2025-06")
     w.add_argument("--rounds", type=int, default=1, help="review-and-refine rounds, 0 to 3 (default 1)")
@@ -347,6 +361,7 @@ def build_parser() -> argparse.ArgumentParser:
     i.set_defaults(func=cmd_import)
 
     sub.add_parser("list", help="list your papers").set_defaults(func=cmd_list)
+    sub.add_parser("models", help="list local Ollama models you can use").set_defaults(func=cmd_models)
 
     f = sub.add_parser("files", help="list a paper's files")
     f.add_argument("project")
@@ -358,7 +373,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--file", help="the file you are talking about, e.g. sections/intro.tex")
     a.add_argument("--selection", help="a passage you want changed (copied from the file)")
     a.add_argument("--attach", action="append", metavar="FILE", help="attach notes, results or reviews; repeatable")
-    a.add_argument("--model", help=f"model to use (default {config.DEFAULT_WRITER})")
+    a.add_argument("--model", help=f"model to use (default {config.DEFAULT_WRITER}); ollama/<model> runs locally")
     a.add_argument("--diff", action="store_true", help="print the exact changes")
     a.add_argument("--no-compile", action="store_true", help="don't recompile after a change")
     a.set_defaults(func=cmd_ask)

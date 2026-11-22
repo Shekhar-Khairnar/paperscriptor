@@ -65,12 +65,13 @@
             <input type="checkbox" id="remember"> <span>Remember the key in this browser</span>
           </label>
           <p class="hint" id="envHint" hidden>A key in the <code>.env</code> file will be used if this is empty.</p>
+          <p class="hint">Not needed if you use local models only: type <code>ollama/&lt;model&gt;</code> in the model boxes.</p>
         </div>
         <div class="row two">
           <div class="field">
             <label for="writer_model">Writing model</label>
             <input type="text" id="writer_model" name="writer_model" list="models" spellcheck="false">
-            <p class="hint">Writes the outline, sections and revisions.</p>
+            <p class="hint">Writes the outline, sections and revisions. <span id="localHint">For a local model, use <code>ollama/&lt;model&gt;</code>.</span></p>
           </div>
           <div class="field">
             <label for="search_model">Paper-search model</label>

@@ -4,7 +4,7 @@
 
 **Turn your notes and results into a LaTeX paper, then refine it by chatting with AI, all on your own machine.**
 
-Built on Google Research's [PaperOrchestra](https://github.com/google-research/paper-orchestra) · Any model via [OpenRouter](https://openrouter.ai) · Web app + CLI · Apache-2.0
+Built on Google Research's [PaperOrchestra](https://github.com/google-research/paper-orchestra) · Cloud models via [OpenRouter](https://openrouter.ai) or **local models via [Ollama](https://ollama.com)** · Web app + CLI · Apache-2.0
 
 ⭐ **If PaperScriptor helps you, please star the repo and [cite it](#citation).** ⭐
 
@@ -20,7 +20,7 @@ Built on Google Research's [PaperOrchestra](https://github.com/google-research/p
 | 🔎 **Real references only** | Every citation is checked on Semantic Scholar / OpenAlex. Papers that don't exist never reach your `.bib`. |
 | 💬 **Edit by chatting** | "Shorten the abstract", "address reviewer 2", "add citations here": it edits several files at once and shows the diff. |
 | 📄 **A full LaTeX editor** | File tree, code editor, live PDF, double-click the PDF to jump to the source, versions and undo. |
-| 🔒 **Local and cheap** | Runs on `127.0.0.1`. A full paper costs about **$1**; a chat edit costs a fraction of a cent. |
+| 🔒 **Private by design** | Runs on `127.0.0.1`. Use local models through Ollama and your unpublished data never leaves your machine, or cloud models at about **$1** per paper. |
 
 ![The editor: files, source, PDF and chat](docs/screenshots/editor.png)
 
@@ -45,6 +45,10 @@ paperscriptor                # starts the web app
 ```
 
 Paste your key into the page, or put it in `.env` (copy `.env.example`).
+
+**Fully local (no API key):** install [Ollama](https://ollama.com), run `ollama pull qwen3:14b`, then type
+`ollama/qwen3:14b` in the model boxes, or pass `--writer ollama/qwen3:14b`. `paperscriptor models` lists what you
+have installed.
 
 ## Features
 
@@ -73,6 +77,7 @@ paperscriptor ask last "Address these comments" --attach reviews.pdf
 paperscriptor compile last --main supplementary.tex
 paperscriptor undo last
 paperscriptor export last -o paper.zip
+paperscriptor ask last "Fix the grammar" --model ollama/qwen3:14b   # fully local
 ```
 
 `paperscriptor --help` lists everything. Without installing, use `python -m paperscriptor ...`.
@@ -95,12 +100,16 @@ changes that would break the document, removes invented citation keys, saves a v
 | Full paper | ~$0.70–1.00 | ~$1.50–3.00 |
 | Chat edit | ~$0.0005 | ~$0.01 |
 
+Local models through Ollama cost nothing but need a capable machine. 14B+ models work best for writing; smaller
+ones are fine for quick edits.
+
 Web search adds about $0.50 per paper (optional). Reference checks are free.
 
 ## Privacy
 
-Everything is stored in `runs/` on your machine. Your text is sent only to OpenRouter (and the model you pick).
-Paper titles are sent to Semantic Scholar and OpenAlex for verification.
+Everything is stored in `runs/` on your machine. With cloud models your text goes to OpenRouter (and the model
+you pick); with **Ollama models it never leaves your computer**. Only paper titles are sent to Semantic Scholar and
+OpenAlex for verification. Turn off "Find and cite real papers" for a fully offline run.
 
 <details>
 <summary><b>Configuration</b></summary>
@@ -112,6 +121,8 @@ Set in `.env`:
 | `OPENROUTER_API_KEY` | Your OpenRouter key |
 | `SEMANTIC_SCHOLAR_API_KEY` | Faster reference checks ([get one](https://www.semanticscholar.org/product/api)) |
 | `OPENALEX_API_KEY` | Higher limit for the backup database ([get one](https://openalex.org/settings/api)) |
+| `OLLAMA_URL` | Local Ollama server (default `http://127.0.0.1:11434`) |
+| `OLLAMA_NUM_CTX` | Largest context window for local models (default 32768) |
 | `PORT` | Web app port (default 8000) |
 | `PAPERSCRIPTOR_HOME` | Where `runs/`, `tools/` and `.env` live (default: the repo folder) |
 
@@ -125,7 +136,7 @@ paperscriptor/
 ├── server.py          web app (FastAPI)
 ├── cli.py             command line
 ├── pipeline.py        paper-writing agents
-├── llm.py             OpenRouter client (streaming)
+├── llm.py             OpenRouter + Ollama client (streaming)
 ├── references.py      Semantic Scholar / OpenAlex checks, BibTeX
 ├── prompts.py         PaperOrchestra prompts
 ├── workspace/         editor: project.py · chat.py · build.py
