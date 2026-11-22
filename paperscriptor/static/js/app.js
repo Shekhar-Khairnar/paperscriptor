@@ -11,6 +11,7 @@
     ["literature", "Literature review"],
     ["writing", "Section writing"],
     ["refining", "Review and refine"],
+    ["checking", "Fact check"],
     ["packaging", "Package LaTeX"],
   ];
   const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
@@ -394,7 +395,7 @@
     if (d.status === "error") { line.textContent = `Stopped with an error: ${d.error}`; line.classList.add("bad"); }
     if (d.status === "cancelled") { line.textContent = "Run cancelled."; line.classList.add("bad"); }
 
-    const order = ["paper.pdf", "paper.zip", "main.tex", "references.bib", "outline.json", "reviews.json"];
+    const order = ["paper.pdf", "paper.zip", "main.tex", "references.bib", "outline.json", "reviews.json", "fact_check.json"];
     const files = d.files.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
     $("files").innerHTML = files.map(f => `<a href="/api/jobs/${d.id}/files/${encodeURIComponent(f)}" download>${ICON_DL}${f}</a>`).join("");
     $("previewBtn").hidden = !d.files.includes("main.tex");
@@ -644,6 +645,7 @@ It's moved to the runs/_deleted folder, so you can still get it back from there.
     $("edModel").value = store.get("editor_model") || store.get("writer_model") || defaultModel;
     syncModelPicker("edModel");
     $("zipLink").href = `/api/projects/${id}/zip`;
+    $("pdfLink").hidden = true;
     setPane(isSmall() ? "chat" : "source");
     setView("pdf");
     try {
@@ -714,6 +716,8 @@ It's moved to the runs/_deleted folder, so you can still get it back from there.
     renderPdf();
     renderBanner();
     $("compileBtn").disabled = ed.compiling;
+    $("pdfLink").hidden = !d.pdf;
+    $("pdfLink").href = `/api/projects/${ed.id}/pdf?download=1&t=${d.pdf_mtime}`;
   }
 
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
@@ -771,6 +775,8 @@ It's moved to the runs/_deleted folder, so you can still get it back from there.
     $("deleteBtn").disabled = !p || p === d.main;
     $("deleteBtn").title = p === d.main ? "The main file can't be deleted" : "Delete this file";
     $("renameBtn").disabled = !p;
+    $("downloadBtn").hidden = !info;
+    if (info) $("downloadBtn").href = `/api/projects/${ed.id}/raw?path=${encodeURIComponent(p)}&download=1`;
     $("syncBtn").hidden = !(info && info.kind === "tex" && d.pdf);
   }
 

@@ -320,6 +320,15 @@ def cmd_restore(args):
 
 def cmd_export(args):
     run = resolve(args.project)
+    if args.pdf:
+        path = workspace.pdf_path(run)
+        if not path:
+            raise CliError("This paper has no PDF yet. Run `paperscriptor compile` first.")
+        if args.output:
+            shutil.copy(path, args.output)
+            path = args.output
+        print(f"Saved {path}")
+        return 0
     path = workspace.build_zip(run)
     if args.output:
         shutil.copy(path, args.output)
@@ -409,9 +418,10 @@ def build_parser() -> argparse.ArgumentParser:
     r.add_argument("version", type=int)
     r.set_defaults(func=cmd_restore)
 
-    e = sub.add_parser("export", help="save the project as a .zip (for Overleaf)")
+    e = sub.add_parser("export", help="save the project as a .zip (for Overleaf), or the PDF with --pdf")
     e.add_argument("project")
-    e.add_argument("-o", "--output", help="where to save the .zip")
+    e.add_argument("--pdf", action="store_true", help="save the compiled PDF instead of the .zip")
+    e.add_argument("-o", "--output", help="where to save the file")
     e.set_defaults(func=cmd_export)
 
     sub.add_parser("setup-latex", help="download the LaTeX engine used for PDFs (one time)").set_defaults(func=cmd_setup_latex)

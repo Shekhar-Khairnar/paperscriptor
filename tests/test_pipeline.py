@@ -3,7 +3,7 @@
 import io, json, os, sys, tempfile, time, types, zipfile, struct, zlib
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from fastapi.testclient import TestClient
-from paperscriptor import config, latex, llm, prompts, references, server
+from paperscriptor import config, latex, llm, pipeline, prompts, references, server
 
 config.RUNS_DIR = tempfile.mkdtemp()
 latex.engine = lambda: None                                            # no PDF build in this test
@@ -58,6 +58,13 @@ def fake_post(url, headers=None, json=None, timeout=None):
         return ok("THOUGHT: fine\nREVIEW JSON:\n```json\n" + J.dumps({"Overall": score, "Soundness": 3, "Weaknesses": ["w"], "Questions": ["q"]}) + "\n```")
     if system.startswith("Role: Senior AI Researcher.\nTask: Revise"):
         return ok('```json\n{"actions_taken":["a"]}\n```\n```latex\n' + TEX % r"Refined \cite{He2016DeepResidual} \cite{Nope1999}" + "\n```")
+    if system.startswith(pipeline.CLAIM_CHECK_SYSTEM[:40]):
+        calls["check"] = calls.get("check", 0) + 1
+        assert "acc 91.2" in user and "Accuracy plot" in user        # checks against the author's materials
+        return ok("```json\n" + J.dumps({"issues": [
+            {"text": r"Refined \cite{He2016DeepResidual}", "type": "overreach", "why": "too broad", "fix": "Checked"},
+            {"text": "text that is not in the paper at all", "type": "number", "why": "x", "fix": "y"}],
+            "author_todo": ["Add the optimizer settings"]}) + "\n```")
     raise AssertionError("unexpected call: " + system[:80] + str(user)[:200])
 
 S2 = {
@@ -101,6 +108,12 @@ z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/files/paper.zip").content
 names = sorted(z.namelist())
 main = z.read("main.tex").decode(); bib = z.read("references.bib").decode()
 assert "Nope1999" not in main and "He2016DeepResidual" in main
+assert calls.get("check") == 1, calls
+assert r"Checked~\cite{He2016DeepResidual}" in main, main                # fix applied, citation kept
+assert "Vaswani2017AttentionAll" not in bib and bib.count("@") == 1, bib  # uncited paper trimmed
+assert "TODO.md" in names
+todo = z.read("TODO.md").decode()
+assert "Add the optimizer settings" in todo and "too broad" in todo, todo
 assert "figures/fig_one.png" in names and "guidelines.md" not in names and "template.tex" not in names
 assert c.get(f"/api/jobs/{jid}/files/..%2F..%2Fapp.py").status_code == 404
 reviews = json.load(open(os.path.join(s["run_dir"], "reviews.json")))

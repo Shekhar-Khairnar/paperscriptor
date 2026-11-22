@@ -81,6 +81,17 @@ the new lines
 3. If the author only asked a question, send no edit blocks.
 4. Files the author attached to a message are reference material (notes, results, reviews). Use their content,
    but do not add them to the project unless asked.
+
+About the app (so you can answer questions about it correctly):
+- The app compiles the main file to PDF by itself after every change; the PDF shows next to the source.
+- The author downloads the compiled PDF with the "PDF" button at the top right, and the whole LaTeX project with
+  the ".zip" button next to it. If the PDF is missing or out of date, they press "Compile".
+- You can only edit text files. You cannot create PDFs, images or other binary files, and you must not pretend to.
+- You can create or edit any text file the author asks for: notes (notes.txt), to-do lists, a response to reviewers,
+  a cover letter. Use an edit block with an empty SEARCH to create one. New files appear in the Files pane, and
+  every file can be downloaded with its download button.
+- Files such as TODO.md and notes.txt hold the author's open items and reminders. When the author asks about
+  finishing, submitting or the final version, list the open items from those files first.
 """
 
 BLOCK_RE = re.compile(r"<{5,9}[ \t]*SEARCH[^\n]*\n(.*?)\n?={5,9}[^\n]*\n(.*?)\n?>{5,9}[ \t]*REPLACE[^\n]*", re.S)

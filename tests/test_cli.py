@@ -74,6 +74,9 @@ assert code == 0 and "Compiled supp.tex with tectonic" in out and "supp.pdf" in 
 dest = os.path.join(TMP, "_src", "out.zip")
 code, out = run("export", "last", "-o", dest)
 assert code == 0 and "main.tex" in zipfile.ZipFile(dest).namelist()
+pdf_dest = os.path.join(TMP, "_src", "out.pdf")
+code, out = run("export", "last", "--pdf", "-o", pdf_dest)
+assert code == 0 and open(pdf_dest, "rb").read().startswith(b"%PDF"), out
 
 # ---- write: full pipeline with a mocked model ----
 idea = os.path.join(TMP, "_src", "idea.md"); open(idea, "w").write("We propose a tiny model.")

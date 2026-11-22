@@ -378,8 +378,11 @@ def project_file(pid: str, path: str):
 
 
 @app.get("/api/projects/{pid}/raw")
-def project_raw(pid: str, path: str):
-    return FileResponse(_ws(workspace.raw_path, _run(pid), path), headers={"Cache-Control": "no-store"})
+def project_raw(pid: str, path: str, download: bool = False):
+    full = _ws(workspace.raw_path, _run(pid), path)
+    if download:
+        return FileResponse(full, filename=os.path.basename(full), headers={"Cache-Control": "no-store"})
+    return FileResponse(full, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/projects/{pid}/file")
@@ -453,10 +456,14 @@ def project_compile(pid: str):
 
 
 @app.get("/api/projects/{pid}/pdf")
-def project_pdf(pid: str):
+def project_pdf(pid: str, download: bool = False):
     path = _ws(workspace.pdf_path, _run(pid))
     if not path:
         raise HTTPException(404, "No PDF yet.")
+    if download:  # "Download PDF" button: save as a file instead of showing it
+        stem = os.path.splitext(os.path.basename(path))[0]
+        return FileResponse(path, media_type="application/pdf", filename="paper.pdf" if stem == "main" else f"{stem}.pdf",
+                            headers={"Cache-Control": "no-store"})
     return FileResponse(path, media_type="application/pdf", headers={"Cache-Control": "no-store"})
 
 

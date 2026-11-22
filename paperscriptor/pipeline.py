@@ -273,6 +273,146 @@ def _latex_call(llm, job, model, system, user, images=(), temperature=0.7, label
     raise LLMError(f"{label}: the model did not return a complete LaTeX document.")
 
 
+
+# --------------------------------------------------------------------------- #
+# Fidelity: writing rules, claim-to-evidence check, bibliography pruning, author TODO list
+# --------------------------------------------------------------------------- #
+FIDELITY_RULES = r"""
+### FIDELITY RULES (follow strictly)
+- Figure captions and figure descriptions: say only what the author's caption and data say. Never mention visual
+  details (colours, arrows, dashed lines, annotations, panels, markers) that you were not told about.
+- Every conclusion must follow from a comparison that was actually run in the experimental log. Do not generalise
+  beyond the evaluated models, data and settings (for example, no claims about model types that were not tested).
+- Present explanations of *why* a result happened as hypotheses ("may", "one possible explanation"), not as findings,
+  unless the log contains an experiment that tests them. Never call something a correlation unless one was computed.
+- Avoid absolute statements ("cannot", "always", "never", "proves", "guarantees") unless they are strictly true.
+- State limitations and caveats (for example synthetic data) clearly once in the abstract and once in a limitations
+  paragraph. Do not repeat the same caveat in every section and caption.
+- Prefer precise, relevant citations over many citations; cite only where a reference supports the sentence.
+- If information that only the authors can give is missing (hyperparameters, funding, author contributions, data
+  links), do not invent it. Leave a short visible placeholder such as \textbf{[AUTHOR: add optimizer settings]}.
+"""
+
+CLAIM_CHECK_SYSTEM = """You are a meticulous scientific fact-checker. You compare a LaTeX manuscript with the authors' own
+materials and fix only statements that the evidence does not support. You do not rewrite for style."""
+
+CHECK_TYPES = {"number", "figure", "overreach", "mechanism", "absolute", "repetition", "missing"}
+
+
+def _replace_once(text: str, old: str, new: str) -> str | None:
+    if old in text:
+        return text.replace(old, new, 1)
+    pattern = r"\s+".join(re.escape(tok) for tok in old.split())  # same text, different line breaks
+    m = re.search(pattern, text) if pattern else None
+    return text[:m.start()] + new + text[m.end():] if m else None
+
+
+def check_claims(llm, job, model, tex, idea, log_md, figures):
+    """Find and fix unsupported statements. Returns (new_tex, report dict)."""
+    fig_ctx = "\n".join(f"- {f['name']}: {f['caption'] or '(no caption given)'}" for f in figures) or "(no figures)"
+    user = f"""--- AUTHORS' IDEA AND METHOD NOTES ---
+{idea}
+
+--- AUTHORS' EXPERIMENTAL LOG (the only source of results) ---
+{log_md}
+
+--- FIGURES THE AUTHORS PROVIDED (file: caption) ---
+{fig_ctx}
+
+--- MANUSCRIPT (LaTeX) ---
+{tex}
+
+TASK: Find up to 25 statements in the manuscript with one of these problems:
+- "number": a number that is not in the materials and cannot be derived from them.
+- "figure": a caption or sentence describing figure content not stated in the authors' caption (e.g. arrows, dashed lines, colours, annotations).
+- "overreach": a conclusion broader than the comparisons actually run (e.g. about models or settings that were not tested).
+- "mechanism": an explanation of why something happened stated as an established finding, or called a correlation without one being computed.
+- "absolute": a categorical claim ("cannot", "always", "proves") that is not strictly true.
+- "repetition": the same caveat repeated in many places (keep the first, shorten the later ones).
+- "missing": the paper says something exists (a file, code, dataset, experiment, setting) that is not in the materials.
+
+Return ONLY a JSON object:
+{{"issues": [{{"text": "exact text copied from the LaTeX (one sentence or clause, at most 400 characters)",
+  "type": "one of the types above", "why": "one short sentence",
+  "fix": "replacement LaTeX that is hedged or corrected; keep every \\\\cite{{...}} and \\\\ref{{...}} from the original; empty string to delete"}}],
+ "author_todo": ["things only the authors can provide or decide, e.g. missing settings, files to add, statements to verify"]}}
+Rules: "text" must match the LaTeX exactly. Do not touch the preamble, correct numbers, tables of correct results or the
+bibliography. If there are no problems, return empty lists."""
+    report = {"issues": [], "applied": 0, "author_todo": []}
+    try:
+        data = extract_json(llm.chat(model, CLAIM_CHECK_SYSTEM, user, temperature=0.1)) or {}
+    except LLMError as e:
+        job.log(f"  ! Fact check skipped: {e}")
+        return tex, report
+    issues = [i for i in (data.get("issues") or []) if isinstance(i, dict)]
+    todo = [str(t).strip() for t in (data.get("author_todo") or []) if str(t).strip()]
+    new_tex = tex
+    for issue in issues[:25]:
+        old, fix, kind = str(issue.get("text") or ""), str(issue.get("fix") or ""), str(issue.get("type") or "")
+        if len(old) < 12 or kind not in CHECK_TYPES or "\\documentclass" in old or "\\end{document}" in old:
+            continue
+        cites = re.findall(r"\\cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{[^}]*\}", old)
+        missing = [c for c in cites if c not in fix]
+        if fix and missing:  # never lose a citation while rewording
+            end = len(fix.rstrip(" .")) if fix.rstrip().endswith(".") else len(fix)
+            fix = fix[:end] + "~" + "".join(missing) + fix[end:]
+        updated = _replace_once(new_tex, old, fix)
+        if updated is not None:
+            new_tex = updated
+            issue["applied"] = True
+            report["applied"] += 1
+    if "\\documentclass" not in new_tex or "\\end{document}" not in new_tex:
+        job.log("  ! Fact check changes would break the document; keeping the previous version.")
+        return tex, report
+    report.update(issues=issues, author_todo=todo)
+    return new_tex, report
+
+
+def prune_bib(bib: str, tex: str) -> tuple[str, int]:
+    """Keep only bibliography entries that the paper cites. Returns (new_bib, removed_count)."""
+    cited = {k.strip() for m in CITE_RE.finditer(tex) for k in m.group(4).split(",") if k.strip()}
+    entries = [e for e in re.split(r"(?m)^(?=@\w+\s*\{)", bib) if e.strip()]
+    keep, removed = [], 0
+    for e in entries:
+        m = re.match(r"@\w+\s*\{\s*([^,\s]+)", e)
+        if m and m.group(1) not in cited:
+            removed += 1
+        else:
+            keep.append(e.strip() + "\n")
+    return "\n".join(keep), removed
+
+
+PLACEHOLDER_RE = re.compile(r"(?m)^\s*([A-Z][A-Za-z /-]{2,40}) here\.\s*$")
+AUTHOR_NOTE_RE = re.compile(r"\[AUTHOR:\s*([^\]]+)\]")
+
+
+def author_todo_md(tex: str, report: dict) -> str:
+    """A checklist of what only the authors can finish, for paper/TODO.md."""
+    lines = tex.splitlines()
+    fill = []
+    for i, line in enumerate(lines, 1):
+        for m in PLACEHOLDER_RE.finditer(line):
+            fill.append(f"- [ ] {m.group(1)} (main.tex, line {i})")
+        for m in AUTHOR_NOTE_RE.finditer(line):
+            fill.append(f"- [ ] {m.group(1).strip()} (main.tex, line {i})")
+    out = ["# Before you submit", "",
+           "Open items found by PaperScriptor. Ask the chat to help with any of them, and tick or delete lines as you",
+           "finish them. The chat reads this file and will remind you of what is still open.", ""]
+    if fill:
+        out += ["## Fill in", ""] + fill + [""]
+    if report.get("author_todo"):
+        out += ["## Provide or check", ""] + [f"- [ ] {t}" for t in report["author_todo"][:20]] + [""]
+    changed = [i for i in report.get("issues", []) if i.get("applied")]
+    if changed:
+        out += ["## Statements the fact check changed (please review)", ""]
+        out += [f"- {i.get('type')}: {str(i.get('why') or '').strip()} Was: \"{str(i.get('text'))[:160]}\"" for i in changed[:15]]
+        out += [""]
+    out += ["## Always", "", "- [ ] Check every number against your own results.",
+            "- [ ] Read every claim and make sure your evidence supports it.",
+            "- [ ] Follow your venue's policy on AI-assisted writing.", ""]
+    return "\n".join(out)
+
+
 def run_pipeline(job: Job, cfg: dict):
     """cfg keys: api_key, writer_model, search_model, template_dir, idea, experimental_log,
     cutoff, use_literature, use_web, refine_rounds, s2_api_key, figures [{name, caption}]"""
@@ -313,7 +453,7 @@ def _run(job: Job, cfg: dict):
 
     # ---------------- Step 1: Outline ----------------
     job.step = "outline"
-    job.log(f"Step 1/5 · Outline agent ({writer})")
+    job.log(f"Step 1/6 · Outline agent ({writer})")
     user = (
         f"'idea.md':\n{idea}\n\n'experimental_log.md':\n{log_md}\n\n"
         f"'template.tex':\n{template_tex}\n\n'conference_guidelines.md':\n{guidelines}"
@@ -341,7 +481,7 @@ def _run(job: Job, cfg: dict):
         limit = int(cfg.get("max_searches") or 0)
         tasks = limit_search_tasks(planned, limit)
         trimmed = f" (the {len(tasks)} most important of {len(planned)} planned, to keep cost down)" if len(tasks) < len(planned) else ""
-        job.log(f"Step 2/5 · Literature agent: {len(tasks)} searches{trimmed} ({searcher}"
+        job.log(f"Step 2/6 · Literature agent: {len(tasks)} searches{trimmed} ({searcher}"
                 f"{', web search on, about $0.012 each' if cfg['use_web'] else ''})")
         found, stopped = [], False
         with ThreadPoolExecutor(max_workers=6) as ex:
@@ -442,7 +582,7 @@ def _run(job: Job, cfg: dict):
         current_tex = fix_citations(current_tex, set(citation_map), job)
         _write(os.path.join(run, "drafts", "1_intro_related_work.tex"), current_tex)
     else:
-        job.log("Step 2/5 · Literature search skipped (turned off).")
+        job.log("Step 2/6 · Literature search skipped (turned off).")
         citation_map = {}
         _write(os.path.join(paper_dir, "references.bib"), "")
 
@@ -450,7 +590,7 @@ def _run(job: Job, cfg: dict):
     job.step = "writing"
     figures = cfg.get("figures") or []
     image_paths = [os.path.join(paper_dir, "figures", f["name"]) for f in figures if f["name"].lower().endswith(RASTER_EXTS)]
-    job.log(f"Step 3/5 · Section writing agent ({writer}, {len(figures)} figure(s))")
+    job.log(f"Step 3/6 · Section writing agent ({writer}, {len(figures)} figure(s))")
     if figures:
         fig_ctx = "### AVAILABLE FIGURES LIST\n" + "".join(
             f"Item {i}:\n  - Filename: {f['name']}\n  - Caption: {f['caption'] or 'No caption provided.'}\n"
@@ -500,7 +640,7 @@ Here are the input materials for the paper.
 4. Insert figures using the filenames from the 'figures_list' input.
 5. Use citations from the Reference Library.
 6. Return the **full** compilable LaTeX file.
-"""
+{FIDELITY_RULES}"""
     current_tex = _latex_call(llm, job, writer, prompts.section_writing_agent_prompt, user,
                               images=image_paths, label="Section writing")
     current_tex = fix_citations(current_tex, set(citation_map), job)
@@ -512,7 +652,7 @@ Here are the input materials for the paper.
     rounds = int(cfg.get("refine_rounds") or 0)
     reviews = []
     if rounds > 0:
-        job.log(f"Step 4/5 · Review and refine ({rounds} round(s), {writer})")
+        job.log(f"Step 4/6 · Review and refine ({rounds} round(s), {writer})")
         review = review_paper(llm, writer, current_tex)
         if review is None:
             job.log("  ! Reviewer did not return a usable review; skipping refinement.")
@@ -552,7 +692,7 @@ INSTRUCTION:
 1. Your goal is to IMPROVE the reviewer score (Current: {review.get('Overall')}).
 2. Address the 'Weaknesses' and 'Questions' in the Reviewer Feedback above.
 3. Output the JSON Worklog first, then the Full Revised LaTeX.
-"""
+{FIDELITY_RULES}"""
                 text = llm.chat(writer, prompts.content_refinement_agent_system_prompt, user)
                 new_tex = extract_latex(text)
                 if not new_tex:
@@ -575,12 +715,39 @@ INSTRUCTION:
         _write(os.path.join(run, "reviews.json"), json.dumps(reviews, indent=2))
         job.files["reviews.json"] = os.path.join(run, "reviews.json")
     else:
-        job.log("Step 4/5 · Refinement skipped (0 rounds).")
+        job.log("Step 4/6 · Refinement skipped (0 rounds).")
 
-    # ---------------- Step 5: Package ----------------
+    # ---------------- Step 5: Fact check ----------------
+    job.step = "checking"
+    report = {"issues": [], "applied": 0, "author_todo": []}
+    if cfg.get("fact_check", True) and not over_budget(job, cfg):
+        job.log(f"Step 5/6 · Fact check: comparing every claim with your materials ({writer})")
+        current_tex, report = check_claims(llm, job, writer, current_tex, idea, log_md, figures)
+        current_tex = fix_citations(current_tex, set(citation_map), job)
+        kinds = {}
+        for i in report["issues"]:
+            if i.get("applied"):
+                kinds[i.get("type")] = kinds.get(i.get("type"), 0) + 1
+        detail = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+        job.log(f"  Fixed {report['applied']} unsupported statement(s){f' ({detail})' if detail else ''}; "
+                f"{len(report['author_todo'])} item(s) for you in TODO.md.")
+        _write(os.path.join(run, "fact_check.json"), json.dumps(report, indent=2))
+        job.files["fact_check.json"] = os.path.join(run, "fact_check.json")
+    else:
+        job.log("Step 5/6 · Fact check skipped" + (" (spending limit reached)." if over_budget(job, cfg) else "."))
+
+    # ---------------- Step 6: Package ----------------
     job.step = "packaging"
-    job.log("Step 5/5 · Packaging the LaTeX project")
+    job.log("Step 6/6 · Packaging the LaTeX project")
     _write(os.path.join(paper_dir, "main.tex"), current_tex)
+    bib_path = os.path.join(paper_dir, "references.bib")
+    if os.path.exists(bib_path):
+        with open(bib_path, encoding="utf-8") as f:
+            pruned, removed = prune_bib(f.read(), current_tex)
+        if removed:
+            _write(bib_path, pruned)
+            job.log(f"  Bibliography trimmed to the {pruned.count('@')} papers the text cites ({removed} uncited removed).")
+    _write(os.path.join(paper_dir, "TODO.md"), author_todo_md(current_tex, report))
     job.files["main.tex"] = os.path.join(paper_dir, "main.tex")
     job.files["references.bib"] = os.path.join(paper_dir, "references.bib")
 

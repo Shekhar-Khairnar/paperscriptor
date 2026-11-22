@@ -260,6 +260,12 @@ assert d["pdf"] and d["compile"]["main"] == "main.tex" and seen["main"] == "main
 assert "main.pdf" not in [f["path"] for f in d["files"]]  # build output hidden
 r = c.get(f"/api/projects/{pid}/pdf")
 assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+r = c.get(f"/api/projects/{pid}/pdf", params={"download": 1})
+assert r.status_code == 200 and 'attachment; filename="paper.pdf"' in r.headers["content-disposition"], r.headers
+assert "attachment" not in c.get(f"/api/projects/{pid}/pdf").headers.get("content-disposition", "")
+r = c.get(f"/api/projects/{pid}/raw", params={"path": "sections/intro.tex", "download": 1})
+assert r.status_code == 200 and 'filename="intro.tex"' in r.headers["content-disposition"] and b"Introduction" in r.content
+assert c.get(f"/api/projects/{pid}/raw", params={"path": "../workspace/state.json", "download": 1}).status_code in (400, 404)
 c.post(f"/api/projects/{pid}/upload", data={"folder": "supp"}, files=[("files", ("appendix.tex", SUPP.encode(), "text/plain"))])
 d = c.post(f"/api/projects/{pid}/main", json={"path": "supp/appendix.tex"}).json()
 assert not d["pdf"]
