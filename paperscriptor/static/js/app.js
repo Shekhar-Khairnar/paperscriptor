@@ -134,6 +134,50 @@
     });
   }
   $("docInput").addEventListener("change", (e) => { addDocs(e.target.files); e.target.value = ""; });
+
+  // ---------- a whole folder: documents, figures and a captions file ----------
+  const FIG_NAME = /([\w\-. ]+?\.(?:png|jpe?g|pdf))/i;
+  function parseCaptions(text) {
+    const caps = {}, lines = text.split(/\r?\n/);
+    lines.forEach((line, i) => {
+      const m = line.match(FIG_NAME); if (!m) return;
+      let rest = line.slice(m.index + m[0].length).replace(/^[\s*_`:|\-\u2013\u2014]+/, "").replace(/[*_`]+$/, "").trim();
+      if (!rest) rest = (lines.slice(i + 1, i + 3).find(l => l.trim() && !FIG_NAME.test(l)) || "").replace(/[*_`]/g, "").trim();
+      if (rest) caps[m[1].trim().split("/").pop().toLowerCase()] = rest;
+    });
+    return caps;
+  }
+  function isFigure(path) {
+    const low = path.toLowerCase();
+    if (/\.(png|jpe?g)$/.test(low)) return true;
+    if (!low.endsWith(".pdf")) return false;
+    const parts = low.split("/");
+    return parts[parts.length - 1].startsWith("fig") || parts.slice(0, -1).some(p => /^(figs?|figures?|imgs?|images?|plots|charts)$/.test(p));
+  }
+  $("folderBtn").addEventListener("click", () => { $("folderInput").value = ""; $("folderInput").click(); });
+  $("folderInput").addEventListener("change", async (e) => {
+    const all = [...e.target.files].filter(f => !/(^|\/)(\.|__MACOSX|__pycache__)/.test(f.webkitRelativePath || f.name));
+    const rel = (f) => (f.webkitRelativePath || f.name).split("/").slice(1).join("/") || f.name;
+    const capFiles = all.filter(f => /caption/i.test(f.name) && /\.(md|txt|markdown)$/i.test(f.name));
+    const figs = all.filter(f => !capFiles.includes(f) && isFigure(rel(f)));
+    const skipped = [], docs = [];
+    for (const f of all) {
+      if (capFiles.includes(f) || figs.includes(f)) continue;
+      if (/review/i.test(f.name)) skipped.push(`${f.name} (reviewer comments: attach them in the editor chat)`);
+      else if (/\.(md|markdown|txt|tex|pdf|docx|csv|tsv|json)$/i.test(f.name)) docs.push(f);
+      else skipped.push(f.name);
+    }
+    addDocs(docs);
+    const before = figures.length;
+    addFiles(figs);
+    let caps = {};
+    for (const cf of capFiles) { try { caps = { ...caps, ...parseCaptions(await cf.text()) }; } catch {} }
+    figures.slice(before).forEach(f => { const c = caps[f.file.name.toLowerCase()]; if (c && !f.caption) f.caption = c; });
+    renderFigures();
+    const captioned = figures.slice(before).filter(f => f.caption).length;
+    $("folderNote").textContent = `Added ${docs.length} document(s) and ${figs.length} figure(s)` +
+      (figs.length ? ` (${captioned} with captions)` : "") + (skipped.length ? `. Skipped: ${skipped.join(", ")}.` : ".");
+  });
   setupDrop($("docDrop"), addDocs);
 
   // ---------- custom LaTeX template ----------

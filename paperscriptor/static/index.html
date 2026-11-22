@@ -110,6 +110,11 @@
             <span style="font-size:.9rem">Markdown, text, PDF, Word (.docx), LaTeX, CSV, JSON</span>
             <input type="file" id="docInput" accept=".md,.markdown,.txt,.tex,.pdf,.docx,.csv,.tsv,.json" multiple aria-labelledby="docs-label">
           </label>
+          <div class="actions" style="margin-top:10px">
+            <button type="button" class="btn-sm" id="folderBtn">Add a whole folder</button>
+            <input type="file" id="folderInput" webkitdirectory multiple hidden>
+          </div>
+          <p class="hint" id="folderNote" aria-live="polite">A folder's documents are added here, its images go to Figures, and captions are read from a file with "caption" in its name.</p>
           <ul class="figs" id="docList" aria-label="Added documents"></ul>
           <p class="hint">Drafts, notes, proposals, result sheets. Set each one to <b>Idea</b>, <b>Results</b> or <b>Both</b>,
             so the writer knows where tables must come from. Scanned PDFs without a text layer can't be read.</p>

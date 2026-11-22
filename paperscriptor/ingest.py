@@ -266,3 +266,92 @@ def unpack_project(uploads: list[tuple[str, bytes]], dest: str) -> str:
         with open(path, "wb") as f:
             f.write(data)
     return main
+
+
+# --------------------------------------------------------------------------- #
+# A folder of research materials (notes, results, figures, captions)
+# --------------------------------------------------------------------------- #
+FIGURE_EXTS = (".png", ".jpg", ".jpeg")
+FIGURE_DIRS = {"fig", "figs", "figure", "figures", "img", "imgs", "image", "images", "plots", "charts"}
+CAPTION_FILE_RE = re.compile(r"caption", re.I)
+REVIEW_FILE_RE = re.compile(r"review", re.I)
+FIG_NAME_RE = re.compile(r"([\w\-. ]+?\.(?:png|jpe?g|pdf))", re.I)
+
+
+def guess_role(name: str) -> str:
+    """'results' for files that look like results (tables, logs, CSV/JSON), otherwise 'idea'."""
+    return "results" if re.search(r"result|experiment|eval|ablation|benchmark|table|metric|\blog\b|data|\.(csv|tsv|json)$",
+                                  name, re.I) else "idea"
+
+
+def parse_captions(text: str) -> dict[str, str]:
+    """Captions keyed by figure file name (lower case), from lines like 'fig1.png: Caption' or a file name line
+    followed by the caption on the next line."""
+    caps, lines = {}, text.splitlines()
+    for i, line in enumerate(lines):
+        m = FIG_NAME_RE.search(line)
+        if not m:
+            continue
+        rest = re.sub(r"^[\s*_`:|\-–—]+", "", line[m.end():]).strip().strip("*_`").strip()
+        if not rest:
+            nxt = next((l.strip() for l in lines[i + 1:i + 3] if l.strip() and not FIG_NAME_RE.search(l)), "")
+            rest = nxt.strip("*_`").strip()
+        if rest:
+            caps[os.path.basename(m.group(1).strip()).lower()] = rest
+    return caps
+
+
+def _is_figure(rel: str) -> bool:
+    low = rel.lower()
+    if low.endswith(FIGURE_EXTS):
+        return True
+    if low.endswith(".pdf"):  # a PDF is a figure only if it is named or filed like one
+        parts = low.split("/")
+        return os.path.basename(low).startswith("fig") or any(p in FIGURE_DIRS for p in parts[:-1])
+    return False
+
+
+def collect_folder(folder: str) -> dict:
+    """Read a folder of materials. Returns {documents: [{name, role, text}], figures: [(name, bytes, caption)],
+    skipped: [(name, reason)], notes: [str]}."""
+    if not os.path.isdir(folder):
+        raise InputError(f"'{folder}' is not a folder.")
+    entries = []
+    for root, dirs, files in os.walk(folder):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in ("__pycache__", "__MACOSX"))
+        for n in sorted(files):
+            if not n.startswith("."):
+                full = os.path.join(root, n)
+                entries.append((os.path.relpath(full, folder).replace("\\", "/"), full))
+    docs, figs, skipped, captions = [], [], [], {}
+    for rel, full in entries:
+        if CAPTION_FILE_RE.search(os.path.basename(rel)) and rel.lower().endswith((".md", ".txt", ".markdown")):
+            with open(full, "rb") as f:
+                captions.update(parse_captions(_decode(f.read())))
+    for rel, full in entries:
+        base, low = os.path.basename(rel), rel.lower()
+        if CAPTION_FILE_RE.search(base) and low.endswith((".md", ".txt", ".markdown")):
+            continue
+        if _is_figure(rel):
+            with open(full, "rb") as f:
+                figs.append((base, f.read(), captions.get(base.lower(), "")))
+        elif REVIEW_FILE_RE.search(base):
+            skipped.append((rel, "looks like reviewer comments; attach it in the editor chat instead"))
+        elif os.path.splitext(low)[1] in DOC_EXTS:
+            with open(full, "rb") as f:
+                try:
+                    text, warning = extract_text(base, f.read())
+                except InputError as e:
+                    skipped.append((rel, str(e)))
+                    continue
+            docs.append({"name": rel, "role": guess_role(rel), "text": text})
+            if warning:
+                skipped.append((rel, warning))
+        else:
+            skipped.append((rel, "not a supported document or figure type"))
+    if not docs:
+        raise InputError(f"No readable documents (md, txt, pdf, docx, csv, json...) were found in '{folder}'.")
+    notes = [f"{len(docs)} document(s): " + ", ".join(f"{d['name']} ({d['role']})" for d in docs)]
+    if figs:
+        notes.append(f"{len(figs)} figure(s): " + ", ".join(f"{n}{'' if c else ' (no caption)'}" for n, _, c in figs))
+    return {"documents": docs, "figures": figs, "skipped": skipped, "notes": notes}

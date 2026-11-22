@@ -54,7 +54,8 @@ have installed.
 
 **Write**
 
-- Input as text or documents: Markdown, PDF, Word, CSV, JSON, LaTeX. Figures with captions.
+- **Point it at a folder** of notes, results and figures: documents are read, images become figures, and captions
+  come from any file with "caption" in its name. Or add files one by one: Markdown, PDF, Word, CSV, JSON, LaTeX.
 - Templates: ICLR 2025, CVPR 2025, Nature (Springer Nature), or **your own journal kit** (.zip / folder).
 - Tables use only your numbers. A revision is kept only if the AI reviewer's score doesn't drop.
 
@@ -69,7 +70,8 @@ have installed.
 ## Command line
 
 ```bash
-paperscriptor write --idea notes.md --log results.csv --template nature
+paperscriptor write my_study_folder/ --template nature
+paperscriptor write --idea notes.md --log results.csv --template iclr2025
 paperscriptor import my-overleaf-project.zip
 paperscriptor ask last "Shorten the abstract to 150 words" --diff
 paperscriptor ask last "Add citations for efficient attention" --file sections/intro.tex

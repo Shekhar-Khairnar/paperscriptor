@@ -4,6 +4,7 @@ Run it as `paperscriptor <command>` (after `pip install -e .`) or `python -m pap
 With no command, it starts the web app.
 
 Examples
+  paperscriptor write my_study_folder/ --template nature
   paperscriptor write --idea notes.md --log results.csv --template nature
   paperscriptor import my-overleaf-project.zip
   paperscriptor list
@@ -76,12 +77,6 @@ def split_suffix(arg: str, choices=None) -> tuple[str, str]:
     return arg, ""
 
 
-def guess_role(name: str) -> str:
-    import re
-    return "results" if re.search(r"result|experiment|eval|ablation|benchmark|table|metric|\blog\b|data|\.(csv|tsv|json)$",
-                                  name, re.I) else "idea"
-
-
 def need_key(args, *models) -> str:
     """The OpenRouter key; not needed when every model used is local (ollama/<model>)."""
     key = (args.api_key or os.environ.get("OPENROUTER_API_KEY", "")).strip()
@@ -113,14 +108,25 @@ def print_compile(d: dict):
 # --------------------------------------------------------------------------- #
 def cmd_write(args):
     docs, idea_parts, log_parts = [], [], []
+    figures = []
+    if args.folder:
+        try:
+            found = ingest.collect_folder(args.folder)
+        except ingest.InputError as e:
+            raise CliError(str(e))
+        docs += found["documents"]
+        figures += found["figures"]
+        for line in found["notes"]:
+            print(f"  {line}")
+        for name, why in found["skipped"]:
+            print(f"  skipped {name}: {why}")
     for path in args.idea or []:
         idea_parts.append(read_doc(path))
     for path in args.log or []:
         log_parts.append(read_doc(path))
     for arg in args.doc or []:
         path, role = split_suffix(arg, ("idea", "results", "both"))
-        docs.append({"name": os.path.basename(path), "role": role or guess_role(path), "text": read_doc(path)})
-    figures = []
+        docs.append({"name": os.path.basename(path), "role": role or ingest.guess_role(path), "text": read_doc(path)})
     for arg in args.figure or []:
         path, caption = split_suffix(arg)
         with open(path, "rb") as f:
@@ -340,6 +346,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="command")
 
     w = sub.add_parser("write", help="write a new paper from your notes and results")
+    w.add_argument("folder", nargs="?", help="a folder with your notes, results, figures (and a captions file)")
     w.add_argument("--idea", action="append", metavar="FILE", help="idea / method notes (md, txt, pdf, docx...); repeatable")
     w.add_argument("--log", action="append", metavar="FILE", help="experimental results; repeatable")
     w.add_argument("--doc", action="append", metavar="FILE[:ROLE]", help="extra document, ROLE = idea, results or both")

@@ -97,5 +97,30 @@ assert code == 2 and "Unknown template" in out
 code, out = run("write", "--idea", os.path.join(TMP, "missing.md"))
 assert code == 2
 
+# ---- write from a whole folder (documents, figures, captions file; reviews and scripts skipped) ----
+from paperscriptor.workspace.build import _png
+study = os.path.join(TMP, "_study"); os.makedirs(os.path.join(study, "figures"))
+open(os.path.join(study, "idea.md"), "w").write("SYNTHETIC. We propose CheckNet, a small model.")
+open(os.path.join(study, "experimental_log.md"), "w").write("Main results: CheckNet F1 88.1 vs baseline 84.0.")
+open(os.path.join(study, "results.csv"), "w").write("model,f1\nCheckNet,88.1\nBaseline,84.0\n")
+open(os.path.join(study, "figures", "fig1_main_results.png"), "wb").write(_png(20, 10))
+open(os.path.join(study, "fig2_ablations.png"), "wb").write(_png(20, 10))
+open(os.path.join(study, "figure_captions.md"), "w").write(
+    "# Captions\n**fig1_main_results.png**: F1 of each model, mean over 3 seeds.\n\nfig2_ablations.png\nF1 when parts are removed.\n")
+open(os.path.join(study, "reviewer_comments.md"), "w").write("Reviewer 1: unclear metric.")
+open(os.path.join(study, "make_figures.py"), "w").write("print('plot')")
+code, out = run("write", study, "--template", "nature", "--rounds", "0", "--no-web")
+assert code == 0, out
+cfg = called["cfg"]
+assert "CheckNet, a small model" in cfg["idea"] and "88.1" in cfg["experimental_log"], cfg["idea"][:200]
+assert "results.csv" in cfg["experimental_log"] and "Unclear metric" not in cfg["idea"] and "unclear metric" not in cfg["idea"]
+caps = {f["name"]: f["caption"] for f in cfg["figures"]}
+assert caps == {"fig1_main_results.png": "F1 of each model, mean over 3 seeds.",
+                "fig2_ablations.png": "F1 when parts are removed."}, caps
+assert "skipped reviewer_comments.md" in out and "skipped make_figures.py" in out, out
+assert cfg["template_dir"].endswith(os.path.join("templates", "nature"))
+code, out = run("write", os.path.join(TMP, "no_such_folder"))
+assert code == 2 and "not a folder" in out
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("ALL CLI TESTS PASSED")
