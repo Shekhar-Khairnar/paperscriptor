@@ -1,0 +1,2087 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paper Orchestra Local</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/stex/stex.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/dialog/dialog.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/searchcursor.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/search/search.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* Neutral, monochrome chat-app look: white / near-black, soft grey fields, pill buttons. */
+  :root {
+    color-scheme: light;
+    --bg: #FFFFFF;
+    --card: #FFFFFF;
+    --fg: #0D0D0D;
+    --muted: #5D5D5D;
+    --border: #E5E5E5;
+    --border-strong: #CFCFCF;
+    --field: #F4F4F4;
+    --hover: #F0F0F0;
+    --primary: #0D0D0D;
+    --primary-hover: #2F2F2F;
+    --on-primary: #FFFFFF;
+    --danger: #C5221F;
+    --danger-soft: #FCEBEA;
+    --success: #15803D;
+    --log-bg: #F9F9F9;
+    --ring: #0D0D0D;
+    --topbar: rgba(255, 255, 255, .85);
+    --sel: rgba(13, 13, 13, .10);
+    --syn-cmd: #0B57A8;
+    --syn-env: #7A3E9D;
+    --syn-comment: #6B7280;
+    --syn-math: #A13D08;
+    --radius: 16px;
+    --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg: #212121;
+      --card: #212121;
+      --fg: #ECECEC;
+      --muted: #B4B4B4;
+      --border: #3A3A3A;
+      --border-strong: #565656;
+      --field: #303030;
+      --hover: #383838;
+      --primary: #ECECEC;
+      --primary-hover: #FFFFFF;
+      --on-primary: #0D0D0D;
+      --danger: #FF8A80;
+      --danger-soft: #3B1F1E;
+      --success: #4ADE80;
+      --log-bg: #181818;
+      --ring: #ECECEC;
+      --topbar: rgba(33, 33, 33, .85);
+      --sel: rgba(236, 236, 236, .16);
+      --syn-cmd: #7DB6FF;
+      --syn-env: #C9A6F2;
+      --syn-comment: #9CA3AF;
+      --syn-math: #F2A766;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  code { font-family: var(--font-mono); font-size: .9em; background: var(--field); padding: 1px 5px; border-radius: 6px; }
+  /* Top bar */
+  .topbar {
+    position: sticky; top: 0; z-index: 10; background: var(--topbar);
+    backdrop-filter: saturate(180%) blur(12px); -webkit-backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-inner { max-width: 1240px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 10px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 1rem; }
+  .brand-mark { width: 28px; height: 28px; border-radius: 8px; background: var(--primary); color: var(--on-primary);
+                display: flex; align-items: center; justify-content: center; }
+  .brand-mark svg { width: 16px; height: 16px; }
+  .topbar .tag { color: var(--muted); font-size: .85rem; margin-left: auto; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 28px 16px 64px; }
+  header { margin-bottom: 24px; }
+  h1, h2 { font-weight: 600; line-height: 1.25; margin: 0; letter-spacing: -.01em; }
+  h1 { font-size: 1.75rem; }
+  h2 { font-size: 1.05rem; margin-bottom: 2px; }
+  .lede { color: var(--muted); margin: 8px 0 0; max-width: 70ch; }
+  .layout { display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr); }
+  @media (min-width: 1024px) {
+    .layout { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: start; }
+    .side { position: sticky; top: 76px; }
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 22px; margin-bottom: 16px;
+  }
+  .card > p.sub { color: var(--muted); margin: 0 0 18px; font-size: .9rem; }
+  .field { margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  label, .label { display: block; font-weight: 500; margin-bottom: 6px; font-size: .9rem; }
+  .hint { color: var(--muted); font-size: .82rem; margin: 6px 0 0; }
+  input[type=text], input[type=password], input[type=month], select, textarea {
+    width: 100%; font: inherit; color: var(--fg); background: var(--field);
+    border: 1px solid transparent; border-radius: 12px; padding: 10px 14px; min-height: 44px;
+    transition: border-color .15s ease, background-color .15s ease;
+  }
+  input::placeholder, textarea::placeholder { color: var(--muted); opacity: .8; }
+  input:hover, select:hover, textarea:hover { border-color: var(--border); }
+  textarea { resize: vertical; min-height: 170px; border-radius: 16px; padding: 14px 16px; }
+  select { cursor: pointer; }
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: none; border-color: var(--border-strong); background: var(--card);
+    box-shadow: 0 0 0 2px var(--ring);
+  }
+  button:focus-visible, .drop:focus-within, summary:focus-visible, .files a:focus-visible {
+    outline: 2px solid var(--ring); outline-offset: 2px;
+  }
+  .row { display: grid; gap: 16px; grid-template-columns: 1fr; }
+  @media (min-width: 640px) { .row.two { grid-template-columns: 1fr 1fr; } }
+  .with-btn { display: flex; gap: 8px; }
+  .with-btn input { flex: 1; min-width: 0; }
+  .label-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .label-row label { margin: 0; }
+  button {
+    font: inherit; font-weight: 500; cursor: pointer; border-radius: 999px; min-height: 44px; padding: 8px 18px;
+    border: 1px solid var(--border); background: var(--card); color: var(--fg);
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    transition: background-color .15s ease, border-color .15s ease, opacity .15s ease;
+  }
+  button:hover:not(:disabled) { background: var(--hover); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-sm { min-height: 34px; padding: 4px 14px; font-size: .85rem; }
+  .btn-primary {
+    background: var(--primary); color: var(--on-primary); border-color: var(--primary);
+    font-weight: 600; width: 100%; min-height: 52px; font-size: 1rem;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+  .btn-danger { color: var(--danger); }
+  .btn-danger:hover:not(:disabled) { background: var(--danger-soft); }
+  .check { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 14px; cursor: pointer; font-weight: 400; font-size: .95rem; }
+  .check input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--primary); flex: none; }
+  .check span b { display: block; font-weight: 500; }
+  .check span small { color: var(--muted); font-size: .82rem; }
+  .drop {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    border: 1.5px dashed var(--border-strong); border-radius: var(--radius); padding: 26px 16px;
+    text-align: center; color: var(--muted); cursor: pointer; font-weight: 400; font-size: .9rem;
+    transition: border-color .15s, background-color .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--fg); background: var(--field); }
+  .drop strong { color: var(--fg); font-weight: 600; }
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .figs { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 8px; }
+  .fig { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 12px; align-items: center;
+         background: var(--field); border-radius: 12px; padding: 8px 10px; }
+  .thumb { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; background: var(--card);
+           display: flex; align-items: center; justify-content: center; font-size: .72rem; color: var(--muted); }
+  .doc { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .doc .status { font-size: .8rem; color: var(--muted); }
+  .doc .status.bad { color: var(--danger); }
+  .doc select { min-height: 34px; padding: 4px 10px; width: auto; background: var(--card); border-radius: 999px; }
+  .doc .name { color: var(--fg) !important; font-weight: 500; }
+  @media (max-width: 520px) { .doc { grid-template-columns: minmax(0, 1fr) auto; } .doc .doc-main { grid-column: 1 / -1; } }
+  .custom-tpl { background: var(--log-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-top: 4px; }
+  .fig .name { font-size: .82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 4px; }
+  .fig input { min-height: 36px; padding: 6px 12px; background: var(--card); }
+  details summary { cursor: pointer; font-weight: 500; padding: 8px 0; min-height: 44px; display: flex; align-items: center; color: var(--muted); }
+  details summary:hover { color: var(--fg); }
+  .error-box { background: var(--danger-soft); color: var(--danger); border-radius: 12px; padding: 12px 16px; margin-top: 12px; font-size: .9rem; }
+  .error-box:empty { display: none; }
+  /* Progress panel */
+  .empty { color: var(--muted); font-size: .92rem; }
+  .steps { list-style: none; padding: 0; margin: 0 0 16px; display: grid; gap: 2px; }
+  .step { display: flex; align-items: center; gap: 12px; padding: 7px 0; color: var(--muted); font-size: .92rem; }
+  .step .dot { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--border-strong); flex: none;
+               display: flex; align-items: center; justify-content: center; }
+  .step.done { color: var(--fg); }
+  .step.done .dot { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
+  .step.active { color: var(--fg); font-weight: 600; }
+  .step.active .dot { border: 2px solid var(--fg); border-top-color: transparent; animation: spin .9s linear infinite; }
+  .step.failed { color: var(--danger); font-weight: 600; }
+  .step.failed .dot { border-color: var(--danger); color: var(--danger); }
+  .step svg { width: 12px; height: 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: .85rem; margin-bottom: 12px; }
+  .meta b { color: var(--fg); font-weight: 600; }
+  .log {
+    background: var(--log-bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px;
+    font-family: var(--font-mono); font-size: .78rem; line-height: 1.6; height: 300px; overflow: auto;
+    white-space: pre-wrap; word-break: break-word; margin: 0; color: var(--fg);
+  }
+  .files { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .files a {
+    display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 6px 14px;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--fg); text-decoration: none;
+    font-weight: 500; font-size: .85rem; transition: background-color .15s ease;
+  }
+  .files a:hover { background: var(--hover); }
+  .files a:first-child { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .files a:first-child:hover { background: var(--primary-hover); }
+  .files svg { width: 15px; height: 15px; }
+  .status-line { font-weight: 600; margin: 0 0 12px; font-size: .95rem; }
+  .status-line.ok { color: var(--success); }
+  .status-line.bad { color: var(--danger); }
+  pre.tex { max-height: 420px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .restart-banner { background: var(--danger-soft); color: var(--danger); padding: 10px 16px; text-align: center; font-size: .9rem;
+                    border-bottom: 1px solid var(--border); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .btn-solid { background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .btn-solid:hover:not(:disabled) { background: var(--primary-hover); border-color: var(--primary-hover); }
+  a.btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; color: var(--fg); border: 1px solid var(--border);
+          border-radius: 999px; min-height: 34px; padding: 4px 14px; font-size: .85rem; font-weight: 500; }
+  a.btn:hover { background: var(--hover); }
+  a.btn svg, button svg { width: 15px; height: 15px; flex: none; }
+  /* Paper list on the home page */
+  .papers { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; min-width: 0; }
+  .papers li { display: flex; align-items: stretch; gap: 4px; min-width: 0; background: var(--field); border-radius: 12px; }
+  .papers .p-open { flex: 1; min-width: 0; justify-content: space-between; align-items: center; gap: 12px; border-radius: 12px;
+                    min-height: 52px; padding: 8px 6px 8px 14px; text-align: left; background: transparent; border-color: transparent; }
+  .papers .p-title { min-width: 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                     overflow-wrap: anywhere; line-height: 1.35; }
+  .papers .p-date { color: var(--muted); font-size: .8rem; font-weight: 400; flex: none; }
+  .papers .p-del { flex: none; width: 44px; min-height: 44px; padding: 0; align-self: center; margin-right: 4px; border-radius: 10px;
+                   border-color: transparent; background: transparent; color: var(--muted); }
+  .papers .p-del:hover:not(:disabled) { background: var(--danger-soft); color: var(--danger); }
+  .papers .p-del svg { width: 17px; height: 17px; }
+  /* ---------- Editor ---------- */
+  .topbar .back { margin-right: 4px; }
+  .topbar .ed-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; color: var(--muted); }
+  .ed-tools { margin-left: auto; display: flex; align-items: center; gap: 8px; flex: none; }
+  .ed-tools select { width: auto; min-height: 34px; padding: 4px 12px; font-size: .85rem; border-radius: 999px; max-width: 260px; }
+  body.editor-mode { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+  body.editor-mode .topbar { position: static; flex: none; }
+  body.editor-mode .topbar-inner { max-width: none; padding: 8px 16px; }
+  body.editor-mode .topbar .tag { display: none; }
+  .editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .ed-tabs { display: none; }
+  .ed-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr) minmax(0, 1fr) 370px; }
+  .ed-grid > section { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--border); background: var(--bg); }
+  .ed-grid > section:last-child { border-right: none; }
+  .ed-grid > section.files { flex-wrap: nowrap; gap: 0; margin: 0; }  /* don't inherit the home page's .files link row */
+  .pane-head { flex: none; min-height: 50px; display: flex; align-items: center; gap: 6px; padding: 6px 10px 6px 14px; border-bottom: 1px solid var(--border); }
+  .ph-title { font-weight: 600; font-size: .86rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ph-title .dirty { color: var(--muted); }
+  .ph-label { font-size: .82rem; color: var(--muted); margin: 0; font-weight: 500; flex: none; }
+  .pane-head select { width: auto; min-height: 34px; padding: 4px 12px; font-size: .84rem; border-radius: 999px; min-width: 96px; max-width: 220px; flex: 0 1 auto; }
+  .pane-head .spacer { flex: 1; }
+  .muted-sm { font-size: .78rem; color: var(--muted); }
+  .icon-btn { width: 36px; height: 36px; min-height: 36px; padding: 0; border-radius: 10px; border-color: transparent; background: transparent; flex: none; }
+  .icon-btn:hover:not(:disabled) { background: var(--hover); }
+  .icon-btn svg { width: 17px; height: 17px; }
+  .badge { font-size: .64rem; font-weight: 600; letter-spacing: .03em; padding: 1px 7px; border-radius: 999px; background: var(--primary);
+           color: var(--on-primary); flex: none; text-transform: uppercase; }
+  /* File tree */
+  .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+  .tree { padding: 6px; overflow: auto; flex: 1; }
+  .tree button { width: 100%; justify-content: flex-start; gap: 7px; min-height: 34px; padding: 4px 8px; border: none; border-radius: 8px;
+                 font-weight: 400; font-size: .85rem; background: transparent; text-align: left; }
+  .tree button:hover:not(:disabled) { background: var(--hover); }
+  .tree button[aria-current="true"] { background: var(--field); font-weight: 600; }
+  .tree .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree svg { width: 15px; height: 15px; flex: none; color: var(--muted); }
+  .tree .chev { transition: transform .15s ease; }
+  .tree [aria-expanded="false"] .chev { transform: rotate(-90deg); }
+  .files-foot { margin: 0; padding: 10px 14px; border-top: 1px solid var(--border); font-size: .78rem; color: var(--muted); }
+  /* Source */
+  .src-body { flex: 1; min-height: 0; position: relative; }
+  .tex-edit { position: absolute; inset: 0; width: 100%; height: 100%; min-height: 0; border: none !important; border-radius: 0; resize: none; padding: 16px 20px;
+              font-family: var(--font-mono); font-size: .82rem; line-height: 1.6; background: var(--bg); tab-size: 2; box-shadow: none !important; }
+  .viewer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--log-bg);
+            color: var(--muted); text-align: center; }
+  .viewer img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; border-radius: 6px; }
+  .viewer iframe { width: 100%; height: 100%; border: 0; }
+  /* Chat */
+  .msgs { flex: 1; overflow-y: auto; padding: 18px 16px 8px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { white-space: pre-wrap; word-break: break-word; font-size: .92rem; }
+  .msg.user { align-self: flex-end; max-width: 88%; background: var(--field); border-radius: 18px; padding: 10px 14px; }
+  .msg.assistant.error { color: var(--danger); }
+  .msg .quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+                border-left: 2px solid var(--border-strong); padding-left: 8px; margin-bottom: 6px; color: var(--muted);
+                font-family: var(--font-mono); font-size: .76rem; white-space: pre-wrap; }
+  .msg-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 8px; font-size: .8rem; color: var(--muted); white-space: normal; }
+  .msg-foot .add { color: var(--success); font-weight: 600; }
+  .msg-foot .del { color: var(--danger); font-weight: 600; }
+  .msg-foot button { min-height: 30px; padding: 2px 12px; font-size: .8rem; }
+  .msg-files { width: 100%; font-family: var(--font-mono); font-size: .74rem; overflow-wrap: anywhere; }
+  .diff { font-family: var(--font-mono); font-size: .74rem; line-height: 1.5; background: var(--log-bg); border: 1px solid var(--border);
+          border-radius: 10px; padding: 8px 0; margin: 8px 0 0; max-height: 320px; overflow: auto; white-space: pre; }
+  .diff span { display: block; padding: 0 10px; }
+  .diff .d-add { background: color-mix(in srgb, var(--success) 14%, transparent); }
+  .diff .d-del { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+  .diff .d-hunk { color: var(--muted); }
+  .diff .d-file { font-weight: 700; padding-top: 6px; }
+  .event { align-self: center; font-size: .78rem; color: var(--muted); text-align: center; }
+  .chat-empty { margin: auto 0; padding: 8px 4px; }
+  .chat-empty h2 { font-size: 1.15rem; margin-bottom: 6px; }
+  .chat-empty p { color: var(--muted); margin: 0 0 14px; font-size: .9rem; }
+  .suggest { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+  .suggest button { justify-content: flex-start; text-align: left; border-radius: 12px; font-weight: 400; font-size: .88rem; min-height: 44px; }
+  .thinking { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: .9rem; }
+  .thinking i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: blink 1.2s infinite ease-in-out; }
+  .thinking i:nth-child(2) { animation-delay: .2s; } .thinking i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+  .composer { padding: 8px 14px 14px; }
+  .composer-box { background: var(--field); border: 1px solid transparent; border-radius: 24px; padding: 8px 8px 8px 16px; }
+  .composer-box:focus-within { border-color: var(--border-strong); }
+  .sel-chip { display: flex; align-items: center; gap: 8px; font-size: .8rem; color: var(--muted); margin: 2px 0 6px; }
+  .sel-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-family: var(--font-mono); }
+  .sel-chip button { min-height: 28px; padding: 0 10px; font-size: .78rem; flex: none; }
+  .composer-row { display: flex; align-items: flex-end; gap: 8px; }
+  .composer textarea { flex: 1; min-height: 40px; max-height: 220px; resize: none; background: transparent; border: none;
+                       border-radius: 0; padding: 8px 0; box-shadow: none !important; }
+  .composer textarea:hover, .composer textarea:focus-visible { border: none; background: transparent; }
+  .send { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; flex: none;
+          background: var(--primary); color: var(--on-primary); border-color: var(--primary); }
+  .send:hover:not(:disabled) { background: var(--primary-hover); }
+  .send svg { width: 18px; height: 18px; }
+  .composer-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: .78rem; color: var(--muted); }
+  .composer-meta input { min-height: 30px; padding: 2px 10px; font-size: .78rem; border-radius: 999px; flex: 1; min-width: 0; }
+  /* PDF */
+  .seg { display: inline-flex; background: var(--field); border-radius: 999px; padding: 3px; gap: 2px; flex: none; }
+  .seg button { min-height: 32px; border: none; background: transparent; padding: 4px 14px; font-size: .84rem; }
+  .seg button[aria-selected="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+  .seg.mid-only { display: none; }
+  .banner { background: var(--danger-soft); color: var(--danger); padding: 10px 14px; font-size: .85rem; border-bottom: 1px solid var(--border); }
+  .info-banner { background: var(--field); color: var(--fg); padding: 10px 14px; font-size: .85rem; border-bottom: 1px solid var(--border);
+                 display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .info-banner p { margin: 0; flex: 1; min-width: 200px; }
+  .info-banner.warn { background: color-mix(in srgb, #F5B400 16%, var(--bg)); }
+  .info-banner .fig-list { margin: 4px 0 0; padding-left: 18px; max-height: 96px; overflow: auto; width: 100%; }
+  .info-banner .fig-list button { background: none; border: none; padding: 0; min-height: 0; font: inherit; color: inherit;
+                                   text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+  .info-banner button { min-height: 34px; padding: 2px 14px; font-size: .82rem; }
+  .banner ul { margin: 6px 0 8px; padding-left: 18px; max-height: 120px; overflow: auto; }
+  .banner button { min-height: 32px; padding: 2px 14px; font-size: .82rem; }
+  .ed-grid > section.preview { background: var(--log-bg); }
+  .pv-body { flex: 1; min-height: 0; position: relative; }
+  .pane { position: absolute; inset: 0; }
+  .pane iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--log-bg); }
+  .pv-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+              gap: 12px; padding: 24px; max-width: 480px; margin: 0 auto; color: var(--muted); }
+  .pv-empty h2 { color: var(--fg); }
+  .pv-empty p { margin: 0; font-size: .9rem; }
+  .pill-status { position: absolute; top: 12px; right: 16px; z-index: 2; display: inline-flex; align-items: center; gap: 8px;
+                 background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; font-size: .82rem;
+                 box-shadow: 0 2px 8px rgba(0, 0, 0, .08); }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--fg); border-top-color: transparent; animation: spin .9s linear infinite; flex: none; }
+  @media (max-width: 1279px) {
+    .ed-grid { grid-template-columns: 210px minmax(0, 1fr) 340px; }
+    .preview .pane-head { flex-wrap: wrap; row-gap: 4px; }
+    .preview .ph-label, .page-ind { display: none; }
+    .ed-grid[data-view="source"] .preview, .ed-grid[data-view="pdf"] .source { display: none; }
+    .seg.mid-only { display: inline-flex; }
+  }
+  @media (max-width: 899px) {
+    .ed-tabs { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .ed-tabs button { flex: 1; min-height: 38px; padding: 4px 8px; font-size: .85rem; border: none; background: transparent; }
+    .ed-tabs button[aria-selected="true"] { background: var(--field); font-weight: 600; }
+    .ed-grid { grid-template-columns: minmax(0, 1fr); }
+    .ed-grid > section { display: none !important; border-right: none; }
+    .ed-grid[data-pane="files"] .files, .ed-grid[data-pane="source"] .source,
+    .ed-grid[data-pane="pdf"] .preview, .ed-grid[data-pane="chat"] .chat { display: flex !important; }
+    .seg.mid-only { display: none; }
+    .ed-tools select { display: none; }
+  }
+  .msg-files a { color: var(--fg); text-decoration-color: var(--border-strong); text-underline-offset: 2px; }
+  .msg-files a:hover { text-decoration-color: var(--fg); }
+  /* Code editor (CodeMirror) */
+  .src-body .CodeMirror { position: absolute; inset: 0; height: 100%; background: var(--bg); color: var(--fg);
+                          font-family: var(--font-mono); font-size: .82rem; line-height: 1.6; }
+  .CodeMirror-gutters { background: var(--bg); border-right: 1px solid var(--border); }
+  .CodeMirror-linenumber { color: var(--muted); opacity: .75; padding: 0 8px 0 6px; }
+  .CodeMirror-cursor { border-left: 2px solid var(--fg); }
+  .CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected { background: var(--sel) !important; }
+  .CodeMirror-line::selection, .CodeMirror-line > span::selection, .CodeMirror-line > span > span::selection { background: var(--sel); }
+  .CodeMirror-matchingbracket { color: var(--fg) !important; background: var(--sel); text-decoration: none; }
+  .CodeMirror-dialog { background: var(--field); color: var(--fg); border-color: var(--border) !important; padding: 6px 12px; font-family: var(--font-body); }
+  .CodeMirror-dialog input { color: var(--fg); font-family: var(--font-mono); }
+  .cm-s-default .cm-tag, .cm-s-default .cm-builtin { color: var(--syn-cmd); }
+  .cm-s-default .cm-keyword { color: var(--syn-env); }
+  .cm-s-default .cm-comment { color: var(--syn-comment); font-style: italic; }
+  .cm-s-default .cm-string, .cm-s-default .cm-string-2, .cm-s-default .cm-number { color: var(--syn-math); }
+  .cm-s-default .cm-bracket { color: var(--muted); }
+  .cm-s-default .cm-atom, .cm-s-default .cm-variable-2, .cm-s-default .cm-def { color: var(--syn-env); }
+  .cm-s-default .cm-error { color: var(--danger); background: none; }
+  .cm-flash { background: var(--sel); transition: background 1s ease; }
+  /* PDF viewer (PDF.js) */
+  .pdfv { position: absolute; inset: 0; overflow: auto; padding: 16px 0 40px; }
+  .pdfv-page { position: relative; margin: 0 auto 14px; background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .18); cursor: text; }
+  .pdfv-page canvas { display: block; width: 100%; height: 100%; }
+  .pdfv-mark { position: absolute; left: -6px; right: -6px; height: 26px; margin-top: -6px; border-radius: 4px; pointer-events: none;
+               background: color-mix(in srgb, #F5B400 35%, transparent); animation: fadeMark 1.8s ease forwards; }
+  @keyframes fadeMark { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }
+  .zoom { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+  .zoom button { min-height: 32px; height: 32px; padding: 0 10px; border-radius: 999px; font-size: .82rem; border-color: transparent; background: transparent; }
+  .zoom button:hover:not(:disabled) { background: var(--hover); }
+  .zoom .pct { min-width: 56px; }
+  .page-ind { font-size: .78rem; color: var(--muted); flex: none; min-width: 48px; text-align: right; }
+  /* Attachments */
+  .att-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+  .att-chip { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; background: var(--card); border: 1px solid var(--border);
+              border-radius: 999px; padding: 2px 4px 2px 10px; max-width: 100%; }
+  .att-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att-chip button { min-height: 24px; height: 24px; width: 24px; padding: 0; border: none; background: transparent; font-size: .9rem; }
+  .att-chip.bad { color: var(--danger); }
+  .msg .atts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .msg .atts span { font-size: .74rem; border: 1px solid var(--border-strong); border-radius: 999px; padding: 1px 8px; color: var(--muted); }
+  .attach { width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%; border-color: transparent; background: transparent; flex: none; color: var(--muted); }
+  .attach:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+  .attach svg { width: 18px; height: 18px; }
+  .live-stage { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .84rem; margin-top: 6px; white-space: normal; }
+  .banner li button { background: none; border: none; padding: 0; min-height: 0; font: inherit; color: inherit; text-decoration: underline;
+                      text-underline-offset: 2px; cursor: pointer; text-align: left; }
+  .files.drag-over { outline: 2px dashed var(--fg); outline-offset: -6px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="topbar-inner">
+    <button type="button" class="btn-sm back" id="backBtn" hidden aria-label="Back to all papers">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>Papers
+    </button>
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+      </span>
+      <span id="brandName">Paper Orchestra</span>
+    </div>
+    <span class="ed-title" id="edTitle" hidden></span>
+    <div class="ed-tools" id="edTools" hidden>
+      <label for="versionSel" class="sr-only">Version history</label>
+      <select id="versionSel" title="Version history"></select>
+      <a class="btn" id="zipLink" href="#" download aria-label="Download the project as .zip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>.zip
+      </a>
+    </div>
+    <span class="tag">Runs locally · OpenRouter</span>
+  </div>
+</div>
+<div class="restart-banner" id="restartBanner" role="alert" hidden>
+  The app was updated while it was running. Close the <b>run.bat</b> window, start it again, then reload this page.
+</div>
+<div class="wrap" id="home">
+  <header>
+    <h1>Write a research paper</h1>
+    <p class="lede">Turn your idea and experiment notes into a LaTeX paper. Four agents run in order:
+      outline, literature review, section writing, then review and refinement.</p>
+  </header>
+
+<div class="layout">
+    <form id="form" novalidate>
+      <section class="card" aria-labelledby="h-conn">
+        <h2 id="h-conn">OpenRouter</h2>
+        <p class="sub">Your key goes only to this local server and to OpenRouter.</p>
+        <div class="field">
+          <label for="api_key">API key</label>
+          <div class="with-btn">
+            <input type="password" id="api_key" name="api_key" autocomplete="off" spellcheck="false" placeholder="sk-or-...">
+            <button type="button" id="toggleKey" aria-controls="api_key" aria-pressed="false">Show</button>
+          </div>
+          <label class="check" style="margin:10px 0 0;font-weight:400">
+            <input type="checkbox" id="remember"> <span>Remember the key in this browser</span>
+          </label>
+          <p class="hint" id="envHint" hidden>A key in the <code>.env</code> file will be used if this is empty.</p>
+        </div>
+        <div class="row two">
+          <div class="field">
+            <label for="writer_model">Writing model</label>
+            <input type="text" id="writer_model" name="writer_model" list="models" spellcheck="false">
+            <p class="hint">Writes the outline, sections and revisions.</p>
+          </div>
+          <div class="field">
+            <label for="search_model">Paper-search model</label>
+            <input type="text" id="search_model" name="search_model" list="models" spellcheck="false">
+            <p class="hint">Suggests papers to cite. A cheap, fast model is fine.</p>
+          </div>
+        </div>
+        <datalist id="models"></datalist>
+      </section>
+
+      <section class="card" aria-labelledby="h-research">
+        <h2 id="h-research">Your research</h2>
+        <p class="sub">Type or paste your notes, load a file into a box, or add whole documents below. The paper uses
+          only what you provide, so include every number you want in the tables.</p>
+        <div class="field">
+          <div class="label-row">
+            <label for="idea">Idea and method</label>
+            <button type="button" class="btn-sm" data-load="idea">Load file</button>
+          </div>
+          <textarea id="idea" name="idea" aria-describedby="idea-hint"></textarea>
+          <p class="hint" id="idea-hint">Problem, core idea, method details, equations, contributions.</p>
+        </div>
+        <div class="field">
+          <div class="label-row">
+            <label for="experimental_log">Experimental log</label>
+            <button type="button" class="btn-sm" data-load="experimental_log">Load file</button>
+          </div>
+          <textarea id="experimental_log" name="experimental_log" aria-describedby="log-hint"></textarea>
+          <p class="hint" id="log-hint">Datasets, baselines, metrics, result tables, ablations, observations.</p>
+        </div>
+        <div class="field">
+          <span class="label" id="docs-label">Documents <span style="font-weight:400;color:var(--muted)">(optional)</span></span>
+          <label class="drop" id="docDrop">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            <span><strong>Add documents</strong> or drag them here</span>
+            <span style="font-size:.9rem">Markdown, text, PDF, Word (.docx), LaTeX, CSV, JSON</span>
+            <input type="file" id="docInput" accept=".md,.markdown,.txt,.tex,.pdf,.docx,.csv,.tsv,.json" multiple aria-labelledby="docs-label">
+          </label>
+          <ul class="figs" id="docList" aria-label="Added documents"></ul>
+          <p class="hint">Drafts, notes, proposals, result sheets. Set each one to <b>Idea</b>, <b>Results</b> or <b>Both</b>,
+            so the writer knows where tables must come from. Scanned PDFs without a text layer can't be read.</p>
+        </div>
+        <input type="file" id="textFile" accept=".md,.markdown,.txt,.tex,.pdf,.docx,.csv,.tsv,.json" hidden>
+      </section>
+
+      <section class="card" aria-labelledby="h-figs">
+        <h2 id="h-figs">Figures <span style="font-weight:500;color:var(--muted)">(optional)</span></h2>
+        <p class="sub">PNG, JPG or PDF. Add a caption so the writer knows what each figure shows.</p>
+        <label class="drop" id="drop">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span><strong>Choose files</strong> or drag them here</span>
+          <input type="file" id="figInput" accept=".png,.jpg,.jpeg,.pdf" multiple>
+        </label>
+        <ul class="figs" id="figList" aria-label="Selected figures"></ul>
+      </section>
+
+      <section class="card" aria-labelledby="h-settings">
+        <h2 id="h-settings">Settings</h2>
+        <div class="row two">
+          <div class="field">
+            <label for="template">LaTeX template</label>
+            <select id="template" name="template"></select>
+          </div>
+          <div class="field">
+            <label for="cutoff">Research cutoff</label>
+            <input type="month" id="cutoff" name="cutoff">
+            <p class="hint">Only papers published up to this month are cited.</p>
+          </div>
+        </div>
+        <div class="field custom-tpl" id="customTpl" hidden>
+          <span class="label" id="tpl-label">Your template files</span>
+          <div class="actions">
+            <button type="button" id="tplFilesBtn">Choose .zip or files</button>
+            <button type="button" id="tplFolderBtn">Choose folder</button>
+            <button type="button" id="tplClearBtn" class="btn-sm" hidden>Clear</button>
+          </div>
+          <input type="file" id="tplFiles" multiple hidden accept=".zip,.tex,.cls,.sty,.bst,.bib,.bbx,.cbx,.def,.cfg,.clo,.png,.jpg,.jpeg,.pdf,.eps">
+          <input type="file" id="tplFolder" webkitdirectory multiple hidden>
+          <p class="hint" id="tplSummary" aria-live="polite">Upload the journal's or conference's LaTeX kit: the main <code>.tex</code> file plus its
+            <code>.cls</code>, <code>.sty</code> and <code>.bst</code> files. Sample text in the template is replaced.</p>
+          <label for="template_rules" style="margin-top:12px">Formatting rules <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+          <textarea id="template_rules" style="min-height:90px" placeholder="e.g. 8 pages max excluding references, double-blind, abstract under 200 words"></textarea>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="use_literature" checked>
+          <span><b>Find and cite real papers</b><small>Suggested papers are checked against Semantic Scholar (OpenAlex as backup), and only papers that exist are cited. This adds a few minutes.</small></span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="use_web" checked>
+          <span><b>Use web search when finding papers</b><small>Better, more recent results. OpenRouter charges a small fee per search, about $0.02.</small></span>
+        </label>
+        <div class="field" style="max-width:280px">
+          <label for="refine_rounds">Review and refine rounds</label>
+          <select id="refine_rounds">
+            <option value="0">0 · skip</option>
+            <option value="1" selected>1 · recommended</option>
+            <option value="2">2</option>
+            <option value="3">3 · same as the original</option>
+          </select>
+        </div>
+        <details>
+          <summary>Advanced</summary>
+          <div class="field">
+            <label for="s2_api_key">Semantic Scholar API key (optional)</label>
+            <input type="password" id="s2_api_key" autocomplete="off" spellcheck="false">
+            <p class="hint">Without one, paper checks share a public rate limit and may be slower.</p>
+          </div>
+          <div class="field">
+            <label for="openalex_api_key">OpenAlex API key (optional)</label>
+            <input type="password" id="openalex_api_key" autocomplete="off" spellcheck="false">
+            <p class="hint">OpenAlex is the backup paper database. Without a key it allows about 100 checks a day;
+              a free key from openalex.org raises that to about 1,000.</p>
+          </div>
+        </details>
+      </section>
+
+      <button type="submit" class="btn-primary" id="runBtn">Write my paper</button>
+      <div class="error-box" id="formError" role="alert"></div>
+    </form>
+
+    <aside class="side">
+      <section class="card" aria-labelledby="h-progress">
+        <div class="label-row">
+          <h2 id="h-progress">Progress</h2>
+          <button type="button" class="btn-sm btn-danger" id="cancelBtn" hidden>Cancel</button>
+        </div>
+        <p class="empty" id="emptyState">Nothing running yet. Fill in the form and press <b>Write my paper</b>.
+          A full run usually takes 10 to 25 minutes.</p>
+        <div id="progress" hidden>
+          <p class="status-line" id="statusLine" aria-live="polite"></p>
+          <ol class="steps" id="steps"></ol>
+          <div class="meta"><span>Cost so far: <b id="cost">$0.00</b></span><span>Elapsed: <b id="elapsed">0:00</b></span></div>
+          <div class="files" id="files"></div>
+          <pre class="log" id="log" role="log" aria-label="Run log" tabindex="0"></pre>
+          <p class="hint" id="runDir"></p>
+          <div class="actions" style="margin-top:12px">
+            <button type="button" class="btn-sm btn-solid" id="openEditorBtn" hidden>Open in editor</button>
+            <button type="button" class="btn-sm" id="previewBtn" hidden aria-expanded="false" aria-controls="texPreview">Preview main.tex</button>
+          </div>
+          <pre class="log tex" id="texPreview" hidden tabindex="0" aria-label="main.tex source"></pre>
+        </div>
+      </section>
+      <section class="card" aria-labelledby="h-papers">
+        <h2 id="h-papers">Your papers</h2>
+        <p class="sub">Open a paper to see the PDF and ask for changes in a chat.</p>
+        <ul class="papers" id="papers"></ul>
+        <button type="button" id="importBtn">Open a LaTeX project (.zip)</button>
+        <input type="file" id="importFiles" multiple hidden accept=".zip,.tex,.bib,.cls,.sty,.bst,.png,.jpg,.jpeg,.pdf,.eps">
+        <p class="hint">For example a project downloaded from Overleaf (Menu &gt; Download &gt; Source).</p>
+        <div class="error-box" id="importError" role="alert"></div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<main class="editor" id="editor" hidden>
+  <nav class="ed-tabs" role="tablist" aria-label="Editor panes">
+    <button type="button" role="tab" data-pane="files" aria-selected="false">Files</button>
+    <button type="button" role="tab" data-pane="source" aria-selected="false">Source</button>
+    <button type="button" role="tab" data-pane="pdf" aria-selected="false">PDF</button>
+    <button type="button" role="tab" data-pane="chat" aria-selected="true">Chat</button>
+  </nav>
+  <div class="ed-grid" id="edGrid" data-view="pdf" data-pane="chat">
+    <section class="files" aria-label="Files">
+      <div class="pane-head">
+        <span class="ph-title">Files</span>
+        <button type="button" class="icon-btn" id="newFileBtn" aria-label="New file" title="New file">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="uploadBtn" aria-label="Upload files" title="Upload files">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </button>
+        <input type="file" id="uploadInput" multiple hidden>
+      </div>
+      <ul class="tree" id="tree" aria-label="Project files"></ul>
+      <p class="files-foot">The file marked <b>MAIN</b> is the one that gets compiled. Drop files here to upload them.</p>
+    </section>
+    <section class="source" aria-label="File editor">
+      <div class="pane-head">
+        <div class="seg mid-only" role="tablist" aria-label="Show"><button type="button" role="tab" data-view="source">Source</button><button type="button" role="tab" data-view="pdf">PDF</button></div>
+        <span class="ph-title" id="srcTitle"></span>
+        <button type="button" class="icon-btn" id="syncBtn" aria-label="Show this line in the PDF" title="Show this line in the PDF">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="1" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="23"/><line x1="1" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="23" y2="12"/></svg>
+        </button>
+        <button type="button" class="btn-sm" id="setMainBtn" hidden>Set as main</button>
+        <button type="button" class="btn-sm btn-solid" id="saveBtn" hidden>Save</button>
+        <button type="button" class="icon-btn" id="renameBtn" aria-label="Rename or move this file" title="Rename or move this file">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        </button>
+        <button type="button" class="icon-btn" id="deleteBtn" aria-label="Delete this file" title="Delete this file">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        </button>
+      </div>
+      <div class="src-body">
+        <textarea class="tex-edit" id="texEdit" spellcheck="false" aria-label="File contents"></textarea>
+        <div class="viewer" id="viewer" hidden></div>
+      </div>
+    </section>
+    <section class="preview" aria-label="PDF">
+      <div class="pane-head">
+        <div class="seg mid-only" role="tablist" aria-label="Show"><button type="button" role="tab" data-view="source">Source</button><button type="button" role="tab" data-view="pdf">PDF</button></div>
+        <label for="mainSel" class="ph-label">Main file</label>
+        <select id="mainSel"></select>
+        <span class="spacer"></span>
+        <div class="zoom" id="zoomBar" hidden>
+          <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
+          <button type="button" class="pct" id="zoomFit" title="Fit to width">Fit</button>
+          <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+        </div>
+        <span class="page-ind" id="pageInd" aria-live="polite"></span>
+        <button type="button" class="btn-sm" id="compileBtn" title="Compile (Ctrl+S in the editor)">Compile</button>
+      </div>
+      <div class="banner" id="errBanner" hidden role="alert"></div>
+      <div class="info-banner" id="setupBanner" hidden role="status"></div>
+      <div class="info-banner warn" id="missingBanner" hidden role="status"></div>
+      <input type="file" id="figUploadInput" multiple hidden accept=".png,.jpg,.jpeg,.pdf,.eps">
+      <div class="pv-body"><div class="pane" id="panePdf" title="Double-click the PDF to jump to that line in the source"></div></div>
+    </section>
+    <section class="chat" aria-label="Chat">
+      <div class="pane-head"><span class="ph-title">Chat</span><span class="muted-sm" id="edCost" title="OpenRouter cost of this chat so far">$0.00</span></div>
+      <div class="msgs" id="msgs" role="log" aria-live="polite" aria-label="Conversation"></div>
+      <form class="composer" id="composer">
+        <div class="composer-box">
+          <div class="sel-chip" id="selChip" hidden>
+            <span id="selText"></span>
+            <button type="button" id="selClear" aria-label="Don't use the selected text">Clear</button>
+          </div>
+          <div class="att-chips" id="attChips" hidden></div>
+          <div class="composer-row">
+            <button type="button" class="attach" id="attachBtn" aria-label="Attach a file (notes, results, reviews)" title="Attach a file (notes, results, reviews)">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.4 11.1l-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/></svg>
+            </button>
+            <input type="file" id="attachInput" multiple hidden accept=".md,.markdown,.txt,.tex,.pdf,.docx,.csv,.tsv,.json">
+            <label for="prompt" class="sr-only">Ask for a change</label>
+            <textarea id="prompt" rows="1" placeholder="Ask for a change…"></textarea>
+            <button type="submit" class="send" id="sendBtn" aria-label="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="composer-meta">
+          <label for="edModel">Model</label>
+          <input type="text" id="edModel" list="models" spellcheck="false">
+        </div>
+      </form>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+  const STEPS = [
+    ["outline", "Outline"],
+    ["literature", "Literature review"],
+    ["writing", "Section writing"],
+    ["refining", "Review and refine"],
+    ["packaging", "Package LaTeX"],
+  ];
+  const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+  const ICON_X = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+  const ICON_DL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+
+  let figures = []; // {file, caption, url}
+  let jobId = null, logCount = 0, pollTimer = null, startedAt = 0, elapsedTimer = null;
+
+  // ---------- init ----------
+  async function init() {
+    const cfg = await fetch("/api/config").then(r => r.json());
+    $("template").innerHTML = cfg.templates.map(t => `<option value="${t.id}">${t.label}</option>`).join("")
+      + `<option value="__custom__">My own LaTeX template…</option>`;
+    $("writer_model").value = store.get("writer_model") || cfg.default_writer;
+    $("search_model").value = store.get("search_model") || cfg.default_search;
+    $("cutoff").value = store.get("cutoff") || cfg.default_cutoff;
+    $("envHint").hidden = !cfg.env_key;
+    // Old servers don't send this flag at all; the editor endpoints they lack are a sure sign too
+    $("restartBanner").hidden = !cfg.restart_needed && "restart_needed" in cfg;
+    const savedKey = store.get("api_key");
+    if (savedKey) { $("api_key").value = savedKey; $("remember").checked = true; }
+    for (const id of DRAFT_FIELDS) {
+      const v = store.get("draft_" + id); if (v) $(id).value = v;
+    }
+    for (const id of ["use_literature", "use_web"]) {
+      const v = store.get("draft_" + id); if (v !== null) $(id).checked = v === "1";
+    }
+    syncWebToggle();
+    syncTemplate();
+    fetch("/api/models").then(r => r.json()).then(d => {
+      $("models").innerHTML = d.models.map(m => `<option value="${m}">`).join("");
+    }).catch(() => {});
+    defaultModel = cfg.default_writer;
+    const last = (location.hash.match(/run=(\w+)/) || [])[1] || store.get("job_id");
+    if (last) resume(last);
+    loadPapers();
+    route();
+  }
+
+  // ---------- drafts ----------
+  const DRAFT_FIELDS = ["idea", "experimental_log", "template", "refine_rounds", "template_rules"];
+  for (const id of DRAFT_FIELDS) {
+    $(id).addEventListener("input", () => store.set("draft_" + id, $(id).value));
+  }
+  for (const id of ["use_literature", "use_web"]) {
+    $(id).addEventListener("change", () => { store.set("draft_" + id, $(id).checked ? "1" : "0"); syncWebToggle(); });
+  }
+  function syncWebToggle() { $("use_web").disabled = !$("use_literature").checked; }
+
+  $("toggleKey").addEventListener("click", () => {
+    const show = $("api_key").type === "password";
+    $("api_key").type = show ? "text" : "password";
+    $("toggleKey").textContent = show ? "Hide" : "Show";
+    $("toggleKey").setAttribute("aria-pressed", String(show));
+  });
+  $("remember").addEventListener("change", () => { if (!$("remember").checked) store.del("api_key"); });
+
+  // Read text from any supported file via the local server (handles PDF and Word too)
+  async function extractFile(file) {
+    const fd = new FormData(); fd.append("file", file, file.name);
+    const r = await fetch("/api/extract", { method: "POST", body: fd });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || `Could not read ${file.name}.`);
+    return d;
+  }
+
+  // Load a file into a textarea (appends if the box already has text)
+  let loadTarget = null;
+  document.querySelectorAll("[data-load]").forEach(b => b.addEventListener("click", () => {
+    loadTarget = b.dataset.load; $("textFile").value = ""; $("textFile").click();
+  }));
+  $("textFile").addEventListener("change", async () => {
+    const f = $("textFile").files[0]; if (!f || !loadTarget) return;
+    const box = $(loadTarget), btn = document.querySelector(`[data-load="${loadTarget}"]`);
+    btn.disabled = true; btn.textContent = "Reading…"; showError("");
+    try {
+      const d = await extractFile(f);
+      box.value = box.value.trim() ? `${box.value.trim()}\n\n---\n\n${d.text}` : d.text;
+      store.set("draft_" + loadTarget, box.value);
+      if (d.warning) showError(`${f.name}: ${d.warning}`);
+      box.focus();
+    } catch (err) { showError(netMessage(err)); }
+    btn.disabled = false; btn.textContent = "Load file";
+  });
+
+  // ---------- documents ----------
+  let docs = []; // {file, name, role, text, chars, status: reading|ready|error, message}
+  const guessRole = (n) => /result|experiment|eval|ablation|benchmark|table|metric|\blog\b|data|\.(csv|tsv|json)$/i.test(n) ? "results" : "idea";
+  function addDocs(list) {
+    for (const file of list) {
+      const doc = { file, name: file.name, role: guessRole(file.name), text: "", chars: 0, status: "reading", message: "Reading…" };
+      docs.push(doc);
+      extractFile(file).then(d => {
+        doc.text = d.text; doc.chars = d.chars; doc.status = "ready";
+        doc.message = `${d.chars.toLocaleString()} characters${d.warning ? " · " + d.warning : ""}`;
+      }).catch(err => { doc.status = "error"; doc.message = err.message; })
+        .finally(renderDocs);
+    }
+    renderDocs();
+  }
+  function renderDocs() {
+    const ul = $("docList"); ul.innerHTML = "";
+    docs.forEach((doc, i) => {
+      const li = document.createElement("li"); li.className = "fig doc";
+      li.innerHTML = `<div class="doc-main"><div class="name"></div><div class="status"></div></div>
+        <div><label class="sr-only" for="role${i}">Use document ${i + 1} as</label>
+          <select id="role${i}"><option value="idea">Idea</option><option value="results">Results</option><option value="both">Both</option></select></div>
+        <button type="button" class="btn-sm" aria-label="Remove document ${i + 1}">Remove</button>`;
+      li.querySelector(".name").textContent = doc.name;
+      const st = li.querySelector(".status"); st.textContent = doc.message;
+      if (doc.status === "error") st.classList.add("bad");
+      const sel = li.querySelector("select"); sel.value = doc.role;
+      sel.disabled = doc.status === "error";
+      sel.addEventListener("change", () => { doc.role = sel.value; });
+      li.querySelector("button").addEventListener("click", () => { docs.splice(docs.indexOf(doc), 1); renderDocs(); });
+      ul.appendChild(li);
+    });
+  }
+  $("docInput").addEventListener("change", (e) => { addDocs(e.target.files); e.target.value = ""; });
+  setupDrop($("docDrop"), addDocs);
+
+  // ---------- custom LaTeX template ----------
+  let tplFiles = []; // {file, path}
+  function syncTemplate() { $("customTpl").hidden = $("template").value !== "__custom__"; }
+  $("template").addEventListener("change", syncTemplate);
+  $("tplFilesBtn").addEventListener("click", () => { $("tplFiles").value = ""; $("tplFiles").click(); });
+  $("tplFolderBtn").addEventListener("click", () => { $("tplFolder").value = ""; $("tplFolder").click(); });
+  $("tplFiles").addEventListener("change", (e) => setTpl([...e.target.files].map(f => ({ file: f, path: f.name }))));
+  $("tplFolder").addEventListener("change", (e) => setTpl([...e.target.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name }))));
+  $("tplClearBtn").addEventListener("click", () => setTpl([]));
+  function setTpl(list) {
+    tplFiles = list.filter(x => !/(^|\/)(\.|__MACOSX)/.test(x.path));
+    $("tplClearBtn").hidden = !tplFiles.length;
+    if (!tplFiles.length) {
+      $("tplSummary").textContent = "No template files chosen yet.";
+      return;
+    }
+    const names = tplFiles.map(x => x.path);
+    const shown = names.slice(0, 6).join(", ") + (names.length > 6 ? `, and ${names.length - 6} more` : "");
+    $("tplSummary").textContent = `${names.length} file(s): ${shown}`;
+  }
+
+  // ---------- figures ----------
+  function addFiles(list) {
+    for (const file of list) {
+      if (!/\.(png|jpe?g|pdf)$/i.test(file.name)) { showError(`"${file.name}" is not a PNG, JPG or PDF.`); continue; }
+      const url = /\.pdf$/i.test(file.name) ? null : URL.createObjectURL(file);
+      figures.push({ file, caption: "", url });
+    }
+    renderFigures();
+  }
+  function renderFigures() {
+    const ul = $("figList"); ul.innerHTML = "";
+    figures.forEach((f, i) => {
+      const li = document.createElement("li"); li.className = "fig";
+      const thumb = f.url ? `<img class="thumb" src="${f.url}" alt="">` : `<div class="thumb">PDF</div>`;
+      li.innerHTML = `${thumb}
+        <div><div class="name"></div>
+          <label class="sr-only" for="cap${i}">Caption for figure ${i + 1}</label>
+          <input type="text" id="cap${i}" placeholder="Caption, e.g. Accuracy vs. training steps"></div>
+        <button type="button" class="btn-sm" aria-label="Remove figure ${i + 1}">Remove</button>`;
+      li.querySelector(".name").textContent = f.file.name;
+      const cap = li.querySelector("input"); cap.value = f.caption;
+      cap.addEventListener("input", () => { f.caption = cap.value; });
+      li.querySelector("button").addEventListener("click", () => {
+        if (f.url) URL.revokeObjectURL(f.url);
+        figures.splice(i, 1); renderFigures();
+      });
+      ul.appendChild(li);
+    });
+  }
+  $("figInput").addEventListener("change", (e) => { addFiles(e.target.files); e.target.value = ""; });
+  function setupDrop(el, onFiles) {
+    ["dragenter", "dragover"].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); el.classList.add("over"); }));
+    ["dragleave", "drop"].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); el.classList.remove("over"); }));
+    el.addEventListener("drop", e => onFiles(e.dataTransfer.files));
+  }
+  setupDrop($("drop"), addFiles);
+
+  // ---------- submit ----------
+  function showError(msg) { $("formError").textContent = msg || ""; }
+
+  $("form").addEventListener("submit", async (e) => {
+    e.preventDefault(); showError("");
+    if (docs.some(d => d.status === "reading")) { showError("Wait until all documents have been read."); return; }
+    const readyDocs = docs.filter(d => d.status === "ready");
+    if (!$("idea").value.trim() && !$("experimental_log").value.trim() && !readyDocs.length) {
+      showError("Add your idea, your results, or at least one document."); $("idea").focus(); return;
+    }
+    const custom = $("template").value === "__custom__";
+    if (custom && !tplFiles.length) { showError("Choose your LaTeX template files, or pick a built-in template."); $("tplFilesBtn").focus(); return; }
+
+    const key = $("api_key").value.trim();
+    if ($("remember").checked && key) store.set("api_key", key);
+    store.set("writer_model", $("writer_model").value.trim());
+    store.set("search_model", $("search_model").value.trim());
+    store.set("cutoff", $("cutoff").value);
+
+    const fd = new FormData();
+    fd.append("api_key", key);
+    fd.append("writer_model", $("writer_model").value.trim());
+    fd.append("search_model", $("search_model").value.trim());
+    fd.append("template", $("template").value);
+    fd.append("template_rules", custom ? $("template_rules").value : "");
+    const materials = {
+      idea: $("idea").value,
+      experimental_log: $("experimental_log").value,
+      documents: readyDocs.map(d => ({ name: d.name, role: d.role, text: d.text })),
+    };
+    fd.append("materials", new Blob([JSON.stringify(materials)], { type: "application/json" }), "materials.json");
+    if (custom) tplFiles.forEach(x => fd.append("template_files", x.file, x.path));
+    fd.append("cutoff", $("cutoff").value);
+    fd.append("use_literature", $("use_literature").checked);
+    fd.append("use_web", $("use_literature").checked && $("use_web").checked);
+    fd.append("refine_rounds", $("refine_rounds").value);
+    fd.append("s2_api_key", $("s2_api_key").value.trim());
+    fd.append("openalex_api_key", $("openalex_api_key").value.trim());
+    fd.append("captions", JSON.stringify(figures.map(f => f.caption)));
+    figures.forEach(f => fd.append("figures", f.file, f.file.name));
+
+    $("runBtn").disabled = true; $("runBtn").textContent = "Starting…";
+    try {
+      const r = await fetch("/api/jobs", { method: "POST", body: fd });
+      const d = await r.json();
+      if (!r.ok) {
+        const detail = Array.isArray(d.detail) ? d.detail.map(x => x.msg).join("; ") : d.detail;
+        throw new Error(detail || "Could not start the run.");
+      }
+      startJob(d.id, true);
+    } catch (err) {
+      showError(netMessage(err)); $("runBtn").disabled = false; $("runBtn").textContent = "Write my paper";
+    }
+  });
+
+  // ---------- progress ----------
+  function startJob(id, fresh) {
+    jobId = id; logCount = 0; store.set("job_id", id);
+    $("log").textContent = ""; $("files").innerHTML = ""; $("texPreview").hidden = true;
+    $("previewBtn").hidden = true; $("emptyState").hidden = true; $("progress").hidden = false;
+    $("cancelBtn").hidden = false; $("cancelBtn").disabled = false;
+    $("runBtn").disabled = true; $("runBtn").textContent = "Writing…";
+    startedAt = Date.now();
+    clearInterval(elapsedTimer);
+    elapsedTimer = setInterval(updateElapsed, 1000);
+    if (fresh) $("h-progress").scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    poll();
+  }
+  async function resume(id) {
+    const r = await fetch(`/api/jobs/${id}`);
+    if (!r.ok) { store.del("job_id"); return; }
+    startJob(id, false);
+  }
+  let finishedAt = null;
+  function updateElapsed() {
+    const s = Math.max(0, Math.floor(((finishedAt || Date.now()) - startedAt) / 1000));
+    $("elapsed").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  }
+  async function poll() {
+    clearTimeout(pollTimer);
+    let d;
+    try {
+      const r = await fetch(`/api/jobs/${jobId}?since=${logCount}`);
+      if (r.status === 404) { finish(); $("statusLine").textContent = "This run is no longer on the server."; return; }
+      d = await r.json();
+    } catch { pollTimer = setTimeout(poll, 4000); return; }
+    render(d);
+    if (d.status === "running") pollTimer = setTimeout(poll, 2000); else finish();
+  }
+  function render(d) {
+    if (d.logs.length) {
+      const el = $("log");
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      el.textContent += (el.textContent ? "\n" : "") + d.logs.join("\n");
+      if (atBottom) el.scrollTop = el.scrollHeight;
+    }
+    logCount = d.log_count;
+    if (d.started_at) startedAt = d.started_at * 1000;
+    finishedAt = d.finished_at ? d.finished_at * 1000 : null;
+    updateElapsed();
+    $("cost").textContent = `$${d.cost.toFixed(2)}`;
+    $("runDir").textContent = `Saved in ${d.run_dir}`;
+
+    const idx = STEPS.findIndex(s => s[0] === d.step);
+    $("steps").innerHTML = STEPS.map(([key, label], i) => {
+      let cls = "", icon = "";
+      if (d.status === "done" || i < idx) { cls = "done"; icon = ICON_CHECK; }
+      else if (i === idx && d.status === "running") cls = "active";
+      else if (i === idx && (d.status === "error" || d.status === "cancelled")) { cls = "failed"; icon = ICON_X; }
+      const state = cls === "done" ? "done" : cls === "active" ? "in progress" : cls === "failed" ? "stopped" : "waiting";
+      return `<li class="step ${cls}"><span class="dot">${icon}</span><span>${label}<span class="sr-only"> (${state})</span></span></li>`;
+    }).join("");
+
+    const line = $("statusLine");
+    line.className = "status-line";
+    if (d.status === "running") line.textContent = `Working on: ${STEPS[idx] ? STEPS[idx][1] : d.step}`;
+    if (d.status === "done") { line.textContent = "Your paper is ready."; line.classList.add("ok"); }
+    if (d.status === "error") { line.textContent = `Stopped with an error: ${d.error}`; line.classList.add("bad"); }
+    if (d.status === "cancelled") { line.textContent = "Run cancelled."; line.classList.add("bad"); }
+
+    const order = ["paper.pdf", "paper.zip", "main.tex", "references.bib", "outline.json", "reviews.json"];
+    const files = d.files.slice().sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    $("files").innerHTML = files.map(f => `<a href="/api/jobs/${d.id}/files/${encodeURIComponent(f)}" download>${ICON_DL}${f}</a>`).join("");
+    $("previewBtn").hidden = !d.files.includes("main.tex");
+    $("openEditorBtn").hidden = !(d.status === "done" && d.project);
+    $("openEditorBtn").dataset.project = d.project || "";
+    if (d.status !== "running" && !render.listed) { render.listed = true; loadPapers(); }
+  }
+  $("openEditorBtn").addEventListener("click", () => { location.hash = "edit=" + $("openEditorBtn").dataset.project; });
+  function finish() {
+    clearInterval(elapsedTimer);
+    $("cancelBtn").hidden = true;
+    $("runBtn").disabled = false; $("runBtn").textContent = "Write my paper";
+  }
+  $("cancelBtn").addEventListener("click", async () => {
+    $("cancelBtn").disabled = true;
+    await fetch(`/api/jobs/${jobId}/cancel`, { method: "POST" }).catch(() => {});
+  });
+  $("previewBtn").addEventListener("click", async () => {
+    const pre = $("texPreview");
+    const open = pre.hidden;
+    if (open) pre.textContent = await fetch(`/api/jobs/${jobId}/files/main.tex`).then(r => r.text());
+    pre.hidden = !open;
+    $("previewBtn").setAttribute("aria-expanded", String(open));
+    $("previewBtn").textContent = open ? "Hide main.tex" : "Preview main.tex";
+  });
+
+  // =====================================================================
+  // Papers list and import
+  // =====================================================================
+  let defaultModel = "";
+  async function loadPapers() {
+    const d = await fetch("/api/projects").then(r => r.json()).catch(() => ({ projects: [] }));
+    const ul = $("papers"); ul.innerHTML = "";
+    if (!d.projects.length) {
+      ul.innerHTML = `<li class="empty">No papers yet.</li>`;
+      return;
+    }
+    for (const p of d.projects) {
+      const li = document.createElement("li");
+      const b = document.createElement("button"); b.type = "button"; b.className = "p-open";
+      b.innerHTML = `<span class="p-title"></span><span class="p-date"></span>`;
+      b.querySelector(".p-title").textContent = p.title;
+      b.querySelector(".p-date").textContent = new Date(p.updated * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      b.title = p.title;
+      b.setAttribute("aria-label", `Open ${p.title}`);
+      b.addEventListener("click", () => { location.hash = "edit=" + p.id; });
+      const del = document.createElement("button"); del.type = "button"; del.className = "p-del";
+      del.title = "Delete this paper";
+      del.setAttribute("aria-label", `Delete ${p.title}`);
+      del.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+      del.addEventListener("click", () => deletePaper(p, del));
+      li.append(b, del); ul.appendChild(li);
+    }
+  }
+  async function deletePaper(p, btn) {
+    if (!confirm(`Delete "${p.title}"?
+
+It's moved to the runs/_deleted folder, so you can still get it back from there.`)) return;
+    btn.disabled = true; $("importError").textContent = "";
+    try {
+      const r = await fetch(`/api/projects/${p.id}`, { method: "DELETE" });
+      const d = await r.json().catch(() => ({}));
+      if (r.status === 405) { $("restartBanner").hidden = false; throw new Error("The app needs a restart before it can delete papers. Close the run.bat window, start it again, then reload this page."); }
+      if (!r.ok) throw new Error(d.detail || "Couldn't delete this paper.");
+      if ($("openEditorBtn").dataset.project === p.id) $("openEditorBtn").hidden = true;
+      loadPapers();
+    } catch (err) { $("importError").textContent = netMessage(err); btn.disabled = false; }
+  }
+  // "Failed to fetch" means the browser couldn't reach the local server at all
+  function netMessage(err) {
+    return err instanceof TypeError ? "Couldn't reach the app. Check that run.bat is still running (start it again if you closed it), then reload this page and try again." : err.message;
+  }
+  $("importBtn").addEventListener("click", () => { $("importFiles").value = ""; $("importFiles").click(); });
+  $("importFiles").addEventListener("change", async (e) => {
+    const files = [...e.target.files]; if (!files.length) return;
+    const fd = new FormData(); files.forEach(f => fd.append("files", f, f.name));
+    $("importBtn").disabled = true; $("importBtn").textContent = "Opening…"; $("importError").textContent = "";
+    try {
+      const r = await fetch("/api/projects/import", { method: "POST", body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || "Could not open that project.");
+      location.hash = "edit=" + d.id;
+    } catch (err) { $("importError").textContent = netMessage(err); }
+    $("importBtn").disabled = false; $("importBtn").textContent = "Open a LaTeX project (.zip)";
+  });
+
+  // =====================================================================
+  // Editor
+  // =====================================================================
+  const SVG = (inner) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
+  const ICON = {
+    chev: SVG('<polyline points="6 9 12 15 18 9"/>').replace("<svg", '<svg class="chev"'),
+    folder: SVG('<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>'),
+    tex: SVG('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>'),
+    bib: SVG('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'),
+    image: SVG('<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'),
+    file: SVG('<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>'),
+  };
+  const PDFJS = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/";
+  const ed = {
+    id: null, data: null, open: null, openText: "", dirty: false, view: "pdf", pane: "chat",
+    busy: false, compiling: false, selection: "", selFile: null, pdfStamp: 0, collapsed: new Set(), installPoll: null,
+    attachments: [], pdf: { doc: null, scale: "fit", pages: [], token: 0, url: null, failed: false },
+  };
+  const SUGGESTIONS = [
+    "Shorten the abstract to about 150 words",
+    "Fix grammar, typos and awkward sentences in every file",
+    "Add citations for the main claims in the introduction",
+    "Make the supplementary material consistent with the main paper",
+  ];
+  const isSmall = () => matchMedia("(max-width: 899px)").matches;
+  const isWide = () => matchMedia("(min-width: 1280px)").matches;
+  const fileInfo = (p) => ed.data?.files.find(f => f.path === p);
+  const rawUrl = (p) => `/api/projects/${ed.id}/raw?path=${encodeURIComponent(p)}&t=${Date.now()}`;
+  const smooth = () => (matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+
+  async function api(path, body) {
+    const opts = body === undefined ? { method: "POST" } :
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+    const r = await fetch(`/api/projects/${ed.id}${path}`, opts);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Something went wrong.");
+    return d;
+  }
+  async function apiGet(path) {
+    const r = await fetch(`/api/projects/${ed.id}${path}`);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Something went wrong.");
+    return d;
+  }
+
+  // ----- code editor: CodeMirror when it loaded, a plain textarea otherwise -----
+  let cm = null, settingText = false;
+  function initCodeEditor() {
+    if (cm) return;
+    if (!window.CodeMirror) { window.addEventListener("load", initCodeEditor, { once: true }); return; }
+    const host = document.querySelector(".src-body");
+    cm = window.CodeMirror(host, {
+      lineNumbers: true, lineWrapping: true, matchBrackets: true, mode: "stex", indentUnit: 2, tabSize: 2,
+      screenReaderLabel: "File contents",
+      extraKeys: {
+        "Ctrl-S": () => saveOrCompile(), "Cmd-S": () => saveOrCompile(),
+        "Ctrl-Enter": () => saveOrCompile(), "Cmd-Enter": () => saveOrCompile(),
+        "Ctrl-J": () => syncToPdf(), "Cmd-J": () => syncToPdf(),
+      },
+    });
+    cm.on("change", () => { if (!settingText) onEdited(); });
+    cm.on("cursorActivity", () => { const s = cm.getSelection().trim(); if (s) setSelection(s, ed.open); });
+    // Take over from the plain textarea (the scripts may arrive after a file was opened)
+    const ta = $("texEdit");
+    settingText = true; cm.setValue(ta.value); cm.clearHistory(); settingText = false;
+    if (ed.open) editor.mode(ed.open);
+    cm.getWrapperElement().hidden = ta.hidden;
+    ta.hidden = true;
+  }
+  const editor = {
+    get: () => cm ? cm.getValue() : $("texEdit").value,
+    set(text, keepScroll) {
+      settingText = true;
+      if (cm) {
+        const sc = cm.getScrollInfo(), cur = cm.getCursor();
+        cm.setValue(text); cm.clearHistory();
+        if (keepScroll) { cm.scrollTo(sc.left, sc.top); cm.setCursor(cur); } else cm.scrollTo(0, 0);
+      } else {
+        const ta = $("texEdit"), top = ta.scrollTop; ta.value = text; ta.scrollTop = keepScroll ? top : 0;
+      }
+      settingText = false;
+    },
+    show(on) {
+      if (cm) { cm.getWrapperElement().hidden = !on; if (on) setTimeout(() => cm.refresh(), 0); }
+      else $("texEdit").hidden = !on;
+    },
+    mode(path) {
+      if (!cm) return;
+      const ext = (path.split(".").pop() || "").toLowerCase();
+      cm.setOption("mode", ["tex", "sty", "cls", "bib", "bbl", "ltx", "dtx", "bst", "def", "cfg", "clo"].includes(ext) ? "stex" : null);
+    },
+    line: () => cm ? cm.getCursor().line + 1 : $("texEdit").value.slice(0, $("texEdit").selectionStart).split("\n").length,
+    jump(line) {
+      const n = Math.max(0, (line || 1) - 1);
+      if (cm) {
+        cm.setCursor({ line: n, ch: 0 });
+        cm.scrollIntoView({ from: { line: Math.max(0, n - 3), ch: 0 }, to: { line: n + 8, ch: 0 } });
+        const h = cm.addLineClass(n, "background", "cm-flash");
+        setTimeout(() => cm.removeLineClass(h, "background", "cm-flash"), 1600);
+        cm.focus();
+      } else {
+        const ta = $("texEdit"), lines = ta.value.split("\n");
+        const pos = lines.slice(0, n).reduce((a, l) => a + l.length + 1, 0);
+        ta.focus(); ta.setSelectionRange(pos, pos + (lines[n] || "").length);
+        ta.scrollTop = Math.max(0, n - 5) * 20;
+      }
+    },
+    refresh: () => { if (cm) cm.refresh(); },
+  };
+
+  function route() {
+    const m = location.hash.match(/edit=([\w-]+)/);
+    if (m) openEditor(m[1]); else closeEditor();
+  }
+  window.addEventListener("hashchange", route);
+
+  async function openEditor(id) {
+    document.body.classList.add("editor-mode");
+    $("home").hidden = true; $("editor").hidden = false; $("backBtn").hidden = false;
+    $("edTitle").hidden = false; $("brandName").hidden = true; $("edTools").hidden = false;
+    initCodeEditor();
+    if (ed.id !== id) {
+      Object.assign(ed, { id, data: null, open: null, openText: "", dirty: false, selection: "", selFile: null, pdfStamp: 0, attachments: [] });
+      ed.pdf = { doc: null, scale: "fit", pages: [], token: 0, url: null, failed: false };
+      ed.collapsed.clear();
+      $("panePdf").innerHTML = ""; editor.set(""); $("msgs").innerHTML = ""; $("tree").innerHTML = "";
+      renderAttachments();
+    }
+    $("edModel").value = store.get("editor_model") || store.get("writer_model") || defaultModel;
+    $("zipLink").href = `/api/projects/${id}/zip`;
+    setPane(isSmall() ? "chat" : "source");
+    setView("pdf");
+    try {
+      const d = await apiGet("");
+      if (!Array.isArray(d.files)) {
+        $("restartBanner").hidden = false;
+        throw new Error("The app's server is an older version. Close the run.bat window, start it again, then reload this page.");
+      }
+      ed.data = d;
+      renderEditor();
+      await openFile(fileInfo(ed.open) ? ed.open : d.main, { quiet: true });
+      const stale = !d.compile || d.compile.version !== d.version || d.compile.main !== d.main || !d.pdf;
+      if (d.latex.engine && stale && !d.busy) compile();
+      if (d.busy) { setBusy(true); renderMessages(); pollLive(); }
+    } catch (err) {
+      $("panePdf").innerHTML = ""; $("panePdf").appendChild(emptyState("Couldn't open this paper", err.message));
+    }
+  }
+  function closeEditor() {
+    if ($("editor").hidden) return;
+    document.body.classList.remove("editor-mode");
+    $("home").hidden = false; $("editor").hidden = true; $("backBtn").hidden = true;
+    $("edTitle").hidden = true; $("brandName").hidden = false; $("edTools").hidden = true;
+    document.title = "Paper Orchestra Local";
+    loadPapers();
+  }
+  $("backBtn").addEventListener("click", async () => {
+    if (ed.dirty && !(await saveFile(false))) return;
+    ed.id = null;
+    history.pushState("", "", location.pathname); route();
+  });
+  window.addEventListener("beforeunload", (e) => { if (ed.dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+  // ----- panes -----
+  function setPane(p) {   // phones: one pane at a time
+    ed.pane = p; $("edGrid").dataset.pane = p;
+    document.querySelectorAll(".ed-tabs [data-pane]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.pane === p)));
+    if (p === "source" || p === "pdf") setView(p);
+    if (p === "chat") setTimeout(scrollChat, 0);
+    if (p === "source") editor.refresh();
+    if (p === "pdf") setTimeout(refitPdf, 0);
+  }
+  function setView(v) {   // medium screens: source or PDF in the middle
+    ed.view = v; $("edGrid").dataset.view = v;
+    document.querySelectorAll("button[data-view]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.view === v)));
+    if (v === "source") setTimeout(() => editor.refresh(), 0); else setTimeout(refitPdf, 0);
+  }
+  document.querySelectorAll(".ed-tabs [data-pane]").forEach(b => b.addEventListener("click", () => setPane(b.dataset.pane)));
+  document.querySelectorAll("button[data-view]").forEach(b => b.addEventListener("click", () => setView(b.dataset.view)));
+  function showSource() { if (isSmall()) setPane("source"); else if (!isWide()) setView("source"); }
+  function showPdf() { if (isSmall()) setPane("pdf"); else if (!isWide()) setView("pdf"); }
+
+  function renderEditor() {
+    const d = ed.data; if (!d) return;
+    $("edTitle").textContent = d.title;
+    document.title = `${d.title} · Paper Orchestra`;
+    $("edCost").textContent = `$${d.cost.toFixed(d.cost < 0.1 ? 3 : 2)}`;
+    $("versionSel").innerHTML = d.versions.slice().reverse().map(v =>
+      `<option value="${v.n}">${v.n === d.version ? "Current: " : ""}v${v.n} · ${escapeHtml(v.note)}</option>`).join("");
+    $("versionSel").value = String(d.version);
+    const mc = d.main_candidates || [];
+    const cands = mc.includes(d.main) ? mc : [d.main, ...mc];
+    $("mainSel").innerHTML = cands.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
+    $("mainSel").value = d.main;
+    renderTree();
+    renderSourceHead();
+    if (!ed.busy) renderMessages();
+    renderPdf();
+    renderBanner();
+    $("compileBtn").disabled = ed.compiling;
+  }
+
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]); }
+  function scrollChat() { const m = $("msgs"); m.scrollTop = m.scrollHeight; }
+
+  // ----- file tree -----
+  function renderTree() {
+    const root = { dirs: {}, files: [] };
+    for (const f of ed.data.files) {
+      const parts = f.path.split("/"); let node = root;
+      parts.slice(0, -1).forEach((part, i) => {
+        const key = parts.slice(0, i + 1).join("/");
+        node = node.dirs[part] ||= { key, dirs: {}, files: [] };
+      });
+      node.files.push(f);
+    }
+    const ul = $("tree"); ul.innerHTML = "";
+    const draw = (node, depth, parent) => {
+      for (const name of Object.keys(node.dirs).sort((a, b) => a.localeCompare(b))) {
+        const dir = node.dirs[name], open = !ed.collapsed.has(dir.key);
+        const li = document.createElement("li");
+        const b = document.createElement("button"); b.type = "button";
+        b.style.paddingLeft = `${8 + depth * 14}px`;
+        b.setAttribute("aria-expanded", String(open));
+        b.innerHTML = `${ICON.chev}${ICON.folder}<span class="nm"></span>`;
+        b.querySelector(".nm").textContent = name;
+        b.addEventListener("click", () => { open ? ed.collapsed.add(dir.key) : ed.collapsed.delete(dir.key); renderTree(); });
+        li.appendChild(b);
+        if (open) { const sub = document.createElement("ul"); draw(dir, depth + 1, sub); li.appendChild(sub); }
+        parent.appendChild(li);
+      }
+      for (const f of node.files.sort((a, b) => a.path.localeCompare(b.path))) {
+        const li = document.createElement("li");
+        const b = document.createElement("button"); b.type = "button";
+        b.style.paddingLeft = `${8 + depth * 14 + 15}px`;
+        if (f.path === ed.open) b.setAttribute("aria-current", "true");
+        const icon = f.kind === "tex" || f.kind === "text" ? ICON.tex : f.kind === "bib" ? ICON.bib : f.kind === "image" ? ICON.image : ICON.file;
+        b.innerHTML = `${icon}<span class="nm"></span>${f.path === ed.data.main ? '<span class="badge">Main</span>' : ""}`;
+        b.querySelector(".nm").textContent = (f.path === ed.open && ed.dirty ? "● " : "") + f.path.split("/").pop();
+        b.title = f.path;
+        b.addEventListener("click", () => openFile(f.path));
+        li.appendChild(b); parent.appendChild(li);
+      }
+    };
+    draw(root, 0, ul);
+  }
+
+  // ----- source pane -----
+  function renderSourceHead() {
+    const d = ed.data, p = ed.open, info = fileInfo(p);
+    $("srcTitle").innerHTML = p ? `${ed.dirty ? '<span class="dirty">● </span>' : ""}<span></span>` : "No file open";
+    if (p) $("srcTitle").lastChild.textContent = p;
+    $("setMainBtn").hidden = !p || p === d.main || !p.toLowerCase().endsWith(".tex");
+    $("saveBtn").hidden = !ed.dirty;
+    $("deleteBtn").disabled = !p || p === d.main;
+    $("deleteBtn").title = p === d.main ? "The main file can't be deleted" : "Delete this file";
+    $("renameBtn").disabled = !p;
+    $("syncBtn").hidden = !(info && info.kind === "tex" && d.pdf);
+  }
+
+  async function openFile(path, { quiet = false, line = null } = {}) {
+    if (!path) return;
+    if (ed.dirty && ed.open !== path && !(await saveFile(false))) return;
+    const info = fileInfo(path);
+    const same = ed.open === path;
+    ed.open = path;
+    if (!same) ed.dirty = false;
+    if (ed.selFile && ed.selFile !== path) setSelection("");
+    const viewer = $("viewer");
+    if (info && info.editable) {
+      if (!same || !ed.openText) {
+        try {
+          const d = await apiGet(`/file?path=${encodeURIComponent(path)}`);
+          if (ed.open !== path) return;
+          ed.openText = d.text; editor.mode(path); editor.set(d.text, false);
+        } catch (err) { editor.show(false); viewer.hidden = false; viewer.textContent = err.message; return; }
+      }
+      editor.show(true); viewer.hidden = true;
+    } else {
+      editor.show(false); viewer.hidden = false; viewer.innerHTML = "";
+      if (info?.kind === "image") {
+        const img = document.createElement("img"); img.src = rawUrl(path); img.alt = path; viewer.appendChild(img);
+      } else if (info?.kind === "pdf") {
+        const f = document.createElement("iframe"); f.src = rawUrl(path) + "#view=FitH"; f.title = path; viewer.appendChild(f);
+      } else {
+        viewer.textContent = info ? "This file can't be shown here, but it stays in the project and is used when compiling." : "File not found.";
+      }
+    }
+    renderTree(); renderSourceHead();
+    if (!quiet) showSource();
+    if (line) setTimeout(() => editor.jump(line), 30);
+  }
+
+  async function refreshOpen() {
+    if (!ed.open || !fileInfo(ed.open)) { ed.open = null; ed.dirty = false; return openFile(ed.data.main, { quiet: true }); }
+    if (ed.dirty || !fileInfo(ed.open).editable) return;
+    try {
+      const d = await apiGet(`/file?path=${encodeURIComponent(ed.open)}`);
+      if (d.text !== ed.openText && !ed.dirty) { ed.openText = d.text; editor.set(d.text, true); }
+    } catch {}
+  }
+
+  function onEdited() {
+    const was = ed.dirty;
+    ed.dirty = editor.get() !== ed.openText;
+    if (was !== ed.dirty) { renderSourceHead(); renderTree(); }
+  }
+  $("texEdit").addEventListener("input", onEdited);
+  $("texEdit").addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === "s" || e.key === "Enter")) { e.preventDefault(); saveOrCompile(); }
+  });
+  ["select", "mouseup", "keyup"].forEach(ev => $("texEdit").addEventListener(ev, () => {
+    const ta = $("texEdit"); const s = ta.value.slice(ta.selectionStart, ta.selectionEnd).trim();
+    if (s) setSelection(s, ed.open);
+  }));
+  function saveOrCompile() { if (ed.dirty) saveFile(true); else compile(); }
+  function setSelection(s, file = null) {
+    ed.selection = s; ed.selFile = s ? file : null;
+    $("selChip").hidden = !s;
+    $("selText").textContent = s ? `Selected in ${file}: ${s.replace(/\s+/g, " ").slice(0, 100)}` : "";
+  }
+  $("selClear").addEventListener("click", () => setSelection(""));
+  $("saveBtn").addEventListener("click", () => saveFile(true));
+
+  async function saveFile(compileAfter) {
+    if (!ed.dirty) return true;
+    const path = ed.open, text = editor.get();
+    $("saveBtn").disabled = true;
+    try {
+      ed.data = await api("/file", { path, text });
+      if (ed.open === path) { ed.openText = text; ed.dirty = editor.get() !== text; }
+      renderEditor();
+      if (compileAfter && ed.data.latex.engine) compile();
+      return true;
+    } catch (err) { alert(err.message); return false; }
+    finally { $("saveBtn").disabled = false; }
+  }
+
+  $("setMainBtn").addEventListener("click", () => setMain(ed.open));
+  $("mainSel").addEventListener("change", () => setMain($("mainSel").value));
+  async function setMain(path) {
+    if (!path || path === ed.data.main) return;
+    if (ed.dirty && !(await saveFile(false))) return;
+    try {
+      ed.data = await api("/main", { path });
+      ed.pdfStamp = 0; ed.pdf.url = null;
+      renderEditor();
+      if (ed.data.latex.engine) { showPdf(); compile(); }
+    } catch (err) { alert(err.message); $("mainSel").value = ed.data.main; }
+  }
+
+  $("newFileBtn").addEventListener("click", async () => {
+    const base = ed.open && ed.open.includes("/") ? ed.open.slice(0, ed.open.lastIndexOf("/") + 1) : "";
+    const name = (prompt("Name of the new file, for example supplementary.tex or sections/results.tex", base) || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!name || name.endsWith("/")) return;
+    if (ed.dirty && !(await saveFile(false))) return;
+    try {
+      ed.data = await api("/new", { path: name });
+      renderEditor();
+      if (fileInfo(name)) openFile(name);
+    } catch (err) { alert(err.message); }
+  });
+  $("renameBtn").addEventListener("click", async () => {
+    const p = ed.open; if (!p) return;
+    const name = (prompt("New name or path for this file", p) || "").trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!name || name === p) return;
+    if (ed.dirty && !(await saveFile(false))) return;
+    try {
+      ed.data = await api("/rename", { path: p, new_path: name });
+      ed.open = null; ed.openText = "";
+      renderEditor();
+      await openFile(fileInfo(name) ? name : ed.data.main, { quiet: true });
+    } catch (err) { alert(err.message); }
+  });
+  async function uploadFiles(files, folder = "") {
+    if (!files.length) return;
+    const fd = new FormData(); files.forEach(f => fd.append("files", f, f.name)); fd.append("folder", folder);
+    $("uploadBtn").disabled = true;
+    try {
+      const r = await fetch(`/api/projects/${ed.id}/upload`, { method: "POST", body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || "Upload failed.");
+      ed.data = d; renderEditor();
+    } catch (err) { alert(netMessage(err)); }
+    $("uploadBtn").disabled = false;
+  }
+  $("uploadBtn").addEventListener("click", () => { $("uploadInput").value = ""; $("uploadInput").click(); });
+  $("uploadInput").addEventListener("change", (e) => {
+    const files = [...e.target.files]; if (!files.length) return;
+    const dir = ed.open && ed.open.includes("/") ? ed.open.slice(0, ed.open.lastIndexOf("/")) : "";
+    const folder = dir && confirm(`Put the files in the folder "${dir}"?\n\nPress Cancel to put them in the top folder.`) ? dir : "";
+    uploadFiles(files, folder);
+  });
+  (() => {   // drag and drop onto the Files pane
+    const pane = document.querySelector(".ed-grid .files");
+    ["dragenter", "dragover"].forEach(ev => pane.addEventListener(ev, (e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); pane.classList.add("drag-over"); } }));
+    ["dragleave", "drop"].forEach(ev => pane.addEventListener(ev, (e) => { if (ev === "dragleave" && pane.contains(e.relatedTarget)) return; pane.classList.remove("drag-over"); }));
+    pane.addEventListener("drop", (e) => { e.preventDefault(); uploadFiles([...e.dataTransfer.files]); });
+  })();
+  $("deleteBtn").addEventListener("click", async () => {
+    const p = ed.open; if (!p || p === ed.data.main) return;
+    if (!confirm(`Delete ${p}?` + (fileInfo(p)?.editable ? " You can bring it back with the version list." : ""))) return;
+    try {
+      ed.data = await api("/delete", { path: p });
+      ed.dirty = false; ed.open = null; ed.openText = "";
+      renderEditor();
+      await openFile(ed.data.main, { quiet: true });
+    } catch (err) { alert(err.message); }
+  });
+
+  // ----- versions -----
+  $("versionSel").addEventListener("change", () => {
+    const n = Number($("versionSel").value);
+    if (n !== ed.data.version) restoreVersion(n);
+  });
+  async function restoreVersion(n) {
+    if (ed.busy) return;
+    if (ed.dirty && !confirm("Discard your unsaved changes?")) { $("versionSel").value = String(ed.data.version); return; }
+    try {
+      ed.data = await api("/restore", { version: n });
+      ed.dirty = false;
+      renderEditor();
+      await refreshOpen();
+      if (ed.data.latex.engine) compile();
+    } catch (err) { alert(err.message); }
+  }
+
+  // ----- messages -----
+  function renderMessages() {
+    const box = $("msgs"); box.innerHTML = "";
+    const msgs = ed.data.messages;
+    if (!msgs.length && !ed.busy) {
+      const div = document.createElement("div"); div.className = "chat-empty";
+      div.innerHTML = `<h2>What should change?</h2>
+        <p>Ask in plain words. The model can edit any text file in the project, several at once, and can add real,
+        checked references. Select text in the editor to point at a passage, or attach notes and results with the clip.
+        ${ed.data.has_inputs ? "" : " This project has no notes or results attached, so the model won't add new numbers."}</p>
+        <div class="suggest"></div>`;
+      SUGGESTIONS.forEach(s => {
+        const b = document.createElement("button"); b.type = "button"; b.textContent = s;
+        b.addEventListener("click", () => { $("prompt").value = s; autoGrow(); $("prompt").focus(); });
+        div.querySelector(".suggest").appendChild(b);
+      });
+      box.appendChild(div);
+    }
+    const lastEdit = [...msgs].reverse().find(m => m.role === "assistant" && m.version);
+    for (const m of msgs) box.appendChild(messageEl(m, m === lastEdit && m.version === ed.data.version));
+    if (ed.busy) {
+      const t = document.createElement("div"); t.className = "msg assistant"; t.id = "liveMsg";
+      t.innerHTML = `<div id="liveText"></div><div class="live-stage"><span class="spinner"></span><span id="liveStage">Thinking…</span></div>`;
+      box.appendChild(t);
+    }
+    scrollChat();
+  }
+
+  function messageEl(m, isLatest) {
+    const div = document.createElement("div");
+    if (m.role === "event") { div.className = "event"; div.textContent = m.text; return div; }
+    div.className = `msg ${m.role}${m.error ? " error" : ""}`;
+    if (m.attachments?.length) {
+      const a = document.createElement("div"); a.className = "atts";
+      m.attachments.forEach(n => { const s = document.createElement("span"); s.textContent = n; a.appendChild(s); });
+      div.appendChild(a);
+    }
+    if (m.selection) {
+      const q = document.createElement("div"); q.className = "quote";
+      q.textContent = (m.selection_file ? `${m.selection_file}: ` : "") + m.selection; div.appendChild(q);
+    }
+    div.appendChild(document.createTextNode(m.text));
+    if (m.role === "assistant" && m.version) {
+      const foot = document.createElement("div"); foot.className = "msg-foot";
+      const files = m.diff.files || [];
+      foot.innerHTML = `<span><span class="add">+${m.diff.added}</span> <span class="del">−${m.diff.removed}</span> lines${files.length > 1 ? ` in ${files.length} files` : ""} · v${m.version}</span>`;
+      const show = document.createElement("button"); show.type = "button"; show.textContent = "Show changes";
+      show.setAttribute("aria-expanded", "false");
+      let pre = null;
+      show.addEventListener("click", () => {
+        if (!pre) { pre = diffEl(m.diff.text); div.appendChild(pre); } else pre.hidden = !pre.hidden;
+        const open = !pre.hidden; show.textContent = open ? "Hide changes" : "Show changes";
+        show.setAttribute("aria-expanded", String(open));
+      });
+      foot.appendChild(show);
+      if (isLatest && m.prev_version) {
+        const undo = document.createElement("button"); undo.type = "button"; undo.textContent = "Undo";
+        undo.addEventListener("click", () => restoreVersion(m.prev_version));
+        foot.appendChild(undo);
+      }
+      if (files.length) {
+        const fl = document.createElement("div"); fl.className = "msg-files";
+        files.forEach((p, i) => {
+          if (i) fl.appendChild(document.createTextNode(", "));
+          const a = document.createElement("a"); a.href = "#"; a.textContent = p;
+          a.addEventListener("click", (e) => { e.preventDefault(); if (fileInfo(p)) openFile(p); });
+          fl.appendChild(a);
+        });
+        foot.appendChild(fl);
+      }
+      div.appendChild(foot);
+    } else if (m.role === "assistant" && m.cost && !m.error) {
+      const foot = document.createElement("div"); foot.className = "msg-foot"; foot.textContent = "No files changed.";
+      div.appendChild(foot);
+    }
+    return div;
+  }
+
+  function diffEl(text) {
+    const pre = document.createElement("pre"); pre.className = "diff";
+    for (const line of text.split("\n")) {
+      const s = document.createElement("span");
+      s.className = line.startsWith("### ") ? "d-file" : line.startsWith("+") ? "d-add" : line.startsWith("-") ? "d-del" : line.startsWith("@@") ? "d-hunk" : "";
+      s.textContent = line.startsWith("### ") ? line.slice(4) : line.startsWith("@@") ? "···" : line || " ";
+      pre.appendChild(s);
+    }
+    return pre;
+  }
+
+  // ----- PDF: PDF.js viewer that keeps your place, with the browser viewer as fallback -----
+  function emptyState(title, text, buttons = []) {
+    const div = document.createElement("div"); div.className = "pv-empty";
+    const h = document.createElement("h2"); h.textContent = title; div.appendChild(h);
+    if (text) { const p = document.createElement("p"); p.textContent = text; div.appendChild(p); }
+    if (buttons.length) {
+      const row = document.createElement("div"); row.className = "actions"; row.style.justifyContent = "center";
+      buttons.forEach(b => row.appendChild(b)); div.appendChild(row);
+    }
+    return div;
+  }
+  function makeBtn(label, onClick, solid) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = label;
+    if (solid) b.className = "btn-solid"; b.addEventListener("click", onClick); return b;
+  }
+  function statusPill(text, spin = true) {
+    const s = document.createElement("div"); s.className = "pill-status"; s.setAttribute("role", "status");
+    s.innerHTML = `${spin ? '<span class="spinner"></span>' : ""}<span></span>`; s.lastChild.textContent = text; return s;
+  }
+  function withSpinner(el) { el.querySelector(".pv-empty").prepend(Object.assign(document.createElement("span"), { className: "spinner" })); }
+
+  let pdfjsLib = null;
+  async function loadPdfjs() {
+    if (pdfjsLib) return pdfjsLib;
+    const mod = await import(PDFJS + "pdf.min.mjs");
+    mod.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.mjs";
+    return (pdfjsLib = mod);
+  }
+
+  function renderSetupBanner() {
+    const d = ed.data, lt = d.latex, b = $("setupBanner");
+    b.hidden = !!lt.engine || !d.pdf;   // with no PDF at all, the big empty state offers setup instead
+    if (b.hidden) return;
+    b.innerHTML = "";
+    const p = document.createElement("p");
+    if (lt.installing) {
+      b.appendChild(Object.assign(document.createElement("span"), { className: "spinner" }));
+      p.textContent = "Setting up PDF preview: downloading Tectonic (about 21 MB). This happens only once.";
+      b.appendChild(p);
+      return;
+    }
+    p.textContent = (lt.error ? lt.error + " " : "") +
+      "This PDF came with your project, so it won't change when you edit. To rebuild it, set up a LaTeX engine once" +
+      (lt.can_install ? " (free, about 21 MB)." : ": install TeX Live or Tectonic, then reload this page.");
+    b.appendChild(p);
+    if (lt.can_install) b.appendChild(makeBtn(lt.error ? "Try again" : "Set up PDF preview", setupLatex, true));
+  }
+
+  function renderPdf() {
+    const d = ed.data, pane = $("panePdf"), lt = d.latex;
+    renderSetupBanner();
+    pane.querySelectorAll(".pill-status").forEach(x => x.remove());
+    $("zoomBar").hidden = !d.pdf || ed.pdf.failed;
+    if (d.pdf) {
+      const url = `/api/projects/${ed.id}/pdf?t=${d.pdf_mtime}`;
+      if (ed.pdfStamp !== d.pdf_mtime || !pane.querySelector(".pdfv, iframe")) { ed.pdfStamp = d.pdf_mtime; showPdfDoc(url); }
+      if (ed.compiling) pane.appendChild(statusPill(`Compiling ${d.main}…`));
+      return;
+    }
+    ed.pdf.doc = null; $("pageInd").textContent = "";
+    pane.innerHTML = "";
+    if (ed.compiling) {
+      pane.appendChild(emptyState(`Compiling ${d.main}…`, "The first time can take a few minutes while LaTeX packages download.")); withSpinner(pane);
+    } else if (lt.installing) {
+      pane.appendChild(emptyState("Setting up PDF preview…", "Downloading Tectonic (about 21 MB). This happens only once.")); withSpinner(pane);
+    } else if (!lt.engine) {
+      pane.appendChild(emptyState("PDF preview needs LaTeX",
+        (lt.error ? lt.error + " " : "") + (lt.can_install
+          ? "Press the button to download Tectonic, a free LaTeX engine (about 21 MB, from GitHub). The first compile then downloads the LaTeX packages it needs. If you already use MiKTeX or TeX Live, it's used instead."
+          : "Install TeX Live or Tectonic, then reload this page."),
+        lt.can_install ? [makeBtn("Set up PDF preview", setupLatex, true)] : []));
+    } else {
+      const c = d.compile;
+      pane.appendChild(emptyState(c && !c.pdf ? "The PDF couldn't be built" : "No PDF yet",
+        c && !c.pdf ? "See the errors above. You can ask the chat to fix them." : `Main file: ${d.main}`, [makeBtn("Compile", compile, true)]));
+    }
+  }
+
+  function currentPdfPos() {
+    const v = $("panePdf").querySelector(".pdfv"); if (!v || !ed.pdf.pages.length) return null;
+    const top = v.scrollTop;
+    for (const p of ed.pdf.pages) {
+      if (p.div.offsetTop + p.div.offsetHeight > top) return { page: p.num, frac: Math.max(0, (top - p.div.offsetTop) / p.div.offsetHeight) };
+    }
+    return null;
+  }
+  function pdfScale(baseWidth, container) {
+    if (ed.pdf.scale === "fit") return Math.max(0.3, (container.clientWidth - 32) / baseWidth);
+    return ed.pdf.scale;
+  }
+
+  async function showPdfDoc(url, keepPos = true) {
+    const pane = $("panePdf");
+    if (ed.pdf.failed) { pane.innerHTML = ""; const f = document.createElement("iframe"); f.title = "PDF preview"; f.src = url + "#view=FitH"; pane.appendChild(f); return; }
+    const token = ++ed.pdf.token;
+    const pos = keepPos ? currentPdfPos() : null;
+    let lib, doc;
+    try {
+      lib = await loadPdfjs();
+      doc = await lib.getDocument({ url, isEvalSupported: false }).promise;
+    } catch (err) {
+      console.warn("PDF.js unavailable, using the browser viewer", err);
+      ed.pdf.failed = true; $("zoomBar").hidden = true;
+      return showPdfDoc(url, false);
+    }
+    if (token !== ed.pdf.token) return;
+    const first = await doc.getPage(1);
+    const base = first.getViewport({ scale: 1 });
+    let viewer = pane.querySelector(".pdfv");
+    const fresh = !viewer;
+    const holder = document.createElement("div");
+    const scale = pdfScale(base.width, viewer || pane);
+    const pages = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const div = document.createElement("div"); div.className = "pdfv-page"; div.dataset.page = n;
+      div.style.width = `${base.width * scale}px`; div.style.height = `${base.height * scale}px`;
+      holder.appendChild(div);
+      pages.push({ num: n, div, rendered: false, scale });
+    }
+    ed.pdf.doc = doc; ed.pdf.url = url; ed.pdf.pages = pages; ed.pdf.base = base;
+    // Render the pages around the old position before swapping, so the view doesn't jump or flash
+    const target = pos ? Math.min(pos.page, doc.numPages) : 1;
+    await Promise.all(pages.filter(p => Math.abs(p.num - target) <= 1).map(p => renderPage(p, token)));
+    if (token !== ed.pdf.token) return;
+    if (fresh) {
+      pane.innerHTML = "";
+      viewer = document.createElement("div"); viewer.className = "pdfv"; viewer.tabIndex = 0;
+      viewer.setAttribute("aria-label", "PDF preview. Double-click to jump to the source.");
+      pane.appendChild(viewer);
+      viewer.addEventListener("scroll", onPdfScroll, { passive: true });
+      viewer.addEventListener("dblclick", onPdfDblClick);
+    }
+    viewer.replaceChildren(...holder.childNodes);
+    if (pos) { const p = pages[target - 1]; viewer.scrollTop = p.div.offsetTop + pos.frac * p.div.offsetHeight; }
+    else viewer.scrollTop = 0;
+    if (ed.compiling) pane.appendChild(statusPill(`Compiling ${ed.data.main}…`));
+    observePages(viewer);
+    updateZoomLabel(); onPdfScroll();
+  }
+
+  let pageObserver = null;
+  function observePages(viewer) {
+    pageObserver?.disconnect();
+    const token = ed.pdf.token;
+    pageObserver = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        const p = ed.pdf.pages[Number(e.target.dataset.page) - 1];
+        if (p && !p.rendered) renderPage(p, token);
+      }
+    }, { root: viewer, rootMargin: "600px 0px" });
+    ed.pdf.pages.forEach(p => pageObserver.observe(p.div));
+  }
+
+  async function renderPage(p, token) {
+    if (p.rendered || !ed.pdf.doc) return;
+    p.rendered = true;
+    try {
+      const page = await ed.pdf.doc.getPage(p.num);
+      if (token !== ed.pdf.token) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+      const vp = page.getViewport({ scale: p.scale * dpr });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+      canvas.setAttribute("aria-label", `Page ${p.num}`);
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+      if (token !== ed.pdf.token) return;
+      p.div.querySelector("canvas")?.remove();
+      p.div.prepend(canvas);
+    } catch (err) { p.rendered = false; }
+  }
+
+  function onPdfScroll() {
+    const pos = currentPdfPos();
+    $("pageInd").textContent = pos && ed.pdf.doc ? `${pos.page} / ${ed.pdf.doc.numPages}` : "";
+  }
+  function updateZoomLabel() {
+    const p = ed.pdf.pages[0];
+    $("zoomFit").textContent = ed.pdf.scale === "fit" ? "Fit" : `${Math.round((p ? p.scale : 1) * 100)}%`;
+  }
+  function setZoom(next) {
+    if (!ed.pdf.doc) return;
+    ed.pdf.scale = next;
+    showPdfDoc(ed.pdf.url, true);
+  }
+  $("zoomFit").addEventListener("click", () => setZoom("fit"));
+  $("zoomIn").addEventListener("click", () => { const s = ed.pdf.pages[0]?.scale || 1; setZoom(Math.min(4, +(s * 1.2).toFixed(2))); });
+  $("zoomOut").addEventListener("click", () => { const s = ed.pdf.pages[0]?.scale || 1; setZoom(Math.max(0.3, +(s / 1.2).toFixed(2))); });
+  let refitTimer = null;
+  function refitPdf() {
+    if (!ed.pdf.doc || ed.pdf.scale !== "fit") return;
+    const v = $("panePdf").querySelector(".pdfv"); if (!v || !v.clientWidth) return;
+    const want = pdfScale(ed.pdf.base.width, v);
+    if (Math.abs(want - (ed.pdf.pages[0]?.scale || 0)) > 0.01) showPdfDoc(ed.pdf.url, true);
+  }
+  new ResizeObserver(() => { clearTimeout(refitTimer); refitTimer = setTimeout(refitPdf, 250); }).observe($("panePdf"));
+
+  async function onPdfDblClick(e) {
+    const pageDiv = e.target.closest(".pdfv-page"); if (!pageDiv) return;
+    const p = ed.pdf.pages[Number(pageDiv.dataset.page) - 1];
+    const rect = pageDiv.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / p.scale, y = (e.clientY - rect.top) / p.scale;
+    try {
+      const hit = await apiGet(`/synctex/inverse?page=${p.num}&x=${x.toFixed(1)}&y=${y.toFixed(1)}`);
+      await openFile(hit.path, { line: hit.line });
+    } catch (err) { flashPill(err.message); }
+  }
+  async function syncToPdf() {
+    if (!ed.open || !ed.pdf.doc) return;
+    try {
+      const hit = await apiGet(`/synctex/forward?path=${encodeURIComponent(ed.open)}&line=${editor.line()}`);
+      showPdf();
+      const p = ed.pdf.pages[hit.page - 1], v = $("panePdf").querySelector(".pdfv");
+      if (!p || !v) return;
+      v.scrollTo({ top: Math.max(0, p.div.offsetTop + hit.y * p.scale - 120), behavior: smooth() });
+      const mark = document.createElement("div"); mark.className = "pdfv-mark"; mark.style.top = `${hit.y * p.scale}px`;
+      p.div.appendChild(mark); setTimeout(() => mark.remove(), 2000);
+    } catch (err) { flashPill(err.message); }
+  }
+  $("syncBtn").addEventListener("click", syncToPdf);
+  function flashPill(text) {
+    const pill = statusPill(text, false); $("panePdf").appendChild(pill); setTimeout(() => pill.remove(), 3500);
+  }
+
+  function renderMissing() {
+    const c = ed.data.compile, b = $("missingBanner");
+    const list = c && c.main === ed.data.main && !ed.compiling ? (c.missing || []) : [];
+    b.hidden = !list.length; if (!list.length) return;
+    b.innerHTML = "";
+    const p = document.createElement("p");
+    p.textContent = `${list.length} figure${list.length > 1 ? "s are" : " is"} missing from the project, so grey placeholders are shown. ` +
+      "Upload the image files (or drag them onto Files) and the PDF updates.";
+    b.appendChild(p);
+    b.appendChild(makeBtn("Upload figures", () => { $("figUploadInput").value = ""; $("figUploadInput").click(); }, true));
+    const ul = document.createElement("ul"); ul.className = "fig-list";
+    list.forEach(m => {
+      const li = document.createElement("li");
+      const btn = document.createElement("button"); btn.type = "button";
+      btn.textContent = `${m.name} (${m.file}, line ${m.line})`;
+      btn.addEventListener("click", () => openFile(m.file, { line: m.line }));
+      li.appendChild(btn); ul.appendChild(li);
+    });
+    b.appendChild(ul);
+  }
+  // Put each uploaded figure where the paper expects it (e.g. figures/fig1.png), matching by file name
+  $("figUploadInput").addEventListener("change", async (e) => {
+    const files = [...e.target.files]; if (!files.length) return;
+    const wanted = (ed.data.compile?.missing || []).map(m => m.name);
+    const groups = {};
+    for (const f of files) {
+      const hit = wanted.find(w => w.split("/").pop().toLowerCase() === f.name.toLowerCase()) ||
+                  wanted.find(w => w.split("/").pop().replace(/\.[^.]+$/, "").toLowerCase() === f.name.replace(/\.[^.]+$/, "").toLowerCase());
+      const folder = hit && hit.includes("/") ? hit.slice(0, hit.lastIndexOf("/")) : "";
+      (groups[folder] ||= []).push(f);
+    }
+    for (const [folder, list] of Object.entries(groups)) await uploadFiles(list, folder);
+    if (ed.data.latex.engine) compile();
+  });
+
+  function renderBanner() {
+    renderMissing();
+    const c = ed.data.compile, b = $("errBanner");
+    const show = c && !ed.compiling && c.version === ed.data.version && c.main === ed.data.main && (c.errors.length || !c.pdf) && ed.data.latex.engine;
+    b.hidden = !show; if (!show) return;
+    b.innerHTML = "";
+    const head = document.createElement("div");
+    head.textContent = c.errors.length
+      ? `LaTeX reported ${c.errors.length} error${c.errors.length > 1 ? "s" : ""}${c.pdf ? " (the PDF was still built)" : ""}:`
+      : `The PDF couldn't be built. ${c.message || ""}`;
+    b.appendChild(head);
+    if (c.errors.length) {
+      const ul = document.createElement("ul");
+      c.errors.forEach(e => {
+        const li = document.createElement("li");
+        const label = `${e.file ? e.file + (e.line ? `, line ${e.line}` : "") + ": " : e.line ? `Line ${e.line}: ` : ""}${e.message}`;
+        if (e.file && fileInfo(e.file)) {
+          const btn = document.createElement("button"); btn.type = "button"; btn.textContent = label;
+          btn.addEventListener("click", () => openFile(e.file, { line: e.line }));
+          li.appendChild(btn);
+        } else li.textContent = label;
+        ul.appendChild(li);
+      });
+      b.appendChild(ul);
+    }
+    b.appendChild(makeBtn("Ask the chat to fix this", () => {
+      const lines = c.errors.map(e => `- ${e.file ? e.file + " " : ""}${e.line ? `line ${e.line}: ` : ""}${e.message}`).join("\n") || c.message;
+      send(`Fix the LaTeX errors so ${c.main} compiles:\n${lines}`);
+    }));
+  }
+
+  async function compile() {
+    if (ed.compiling || !ed.data) return;
+    if (!ed.data.latex.engine) {
+      if (!ed.data.latex.installing && ed.data.latex.can_install &&
+          confirm("Compiling needs a LaTeX engine, which isn't set up yet.\n\nDownload Tectonic now? It's free, about 21 MB from GitHub, and only needed once. The first compile then downloads the LaTeX packages it needs, which can take a few minutes.")) {
+        setupLatex();
+      } else { renderSetupBanner(); }
+      return;
+    }
+    ed.compiling = true; renderPdf(); renderBanner(); $("compileBtn").disabled = true;
+    const id = ed.id;
+    try {
+      const d = await api("/compile");
+      if (ed.id === id) ed.data = d;
+    } catch (err) { if (ed.id === id) flashPill(err.message); }
+    ed.compiling = false;
+    if (ed.id === id) renderEditor();
+  }
+  $("compileBtn").addEventListener("click", async () => { if (ed.dirty) await saveFile(true); else compile(); showPdf(); });
+
+  async function setupLatex() {
+    try { const r = await fetch("/api/latex/setup", { method: "POST" }); ed.data.latex = await r.json(); } catch {}
+    renderPdf();
+    clearInterval(ed.installPoll);
+    ed.installPoll = setInterval(async () => {
+      const lt = await fetch("/api/latex").then(r => r.json()).catch(() => null);
+      if (!lt || !ed.data) return;
+      ed.data.latex = lt;
+      if (!lt.installing) { clearInterval(ed.installPoll); renderEditor(); if (lt.engine) compile(); }
+      else renderPdf();
+    }, 1500);
+  }
+
+  // ----- chat attachments -----
+  $("attachBtn").addEventListener("click", () => { $("attachInput").value = ""; $("attachInput").click(); });
+  $("attachInput").addEventListener("change", (e) => {
+    for (const file of e.target.files) {
+      const a = { name: file.name, text: "", status: "reading" };
+      ed.attachments.push(a);
+      extractFile(file).then(d => { a.text = d.text; a.status = "ready"; })
+        .catch(err => { a.status = "error"; a.error = err.message; })
+        .finally(renderAttachments);
+    }
+    renderAttachments();
+  });
+  function renderAttachments() {
+    const box = $("attChips"); box.innerHTML = "";
+    box.hidden = !ed.attachments.length;
+    ed.attachments.forEach((a, i) => {
+      const chip = document.createElement("span"); chip.className = `att-chip${a.status === "error" ? " bad" : ""}`;
+      chip.innerHTML = `<span></span><button type="button" aria-label="Remove ${escapeHtml(a.name)}">×</button>`;
+      chip.firstChild.textContent = a.status === "reading" ? `${a.name} (reading…)` : a.status === "error" ? `${a.name}: ${a.error}` : a.name;
+      chip.title = chip.firstChild.textContent;
+      chip.lastChild.addEventListener("click", () => { ed.attachments.splice(i, 1); renderAttachments(); });
+      box.appendChild(chip);
+    });
+  }
+
+  // ----- chat -----
+  function autoGrow() { const t = $("prompt"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 220) + "px"; }
+  $("prompt").addEventListener("input", autoGrow);
+  $("prompt").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!ed.busy) $("composer").requestSubmit(); }
+  });
+  $("edModel").addEventListener("change", () => store.set("editor_model", $("edModel").value.trim()));
+  $("composer").addEventListener("submit", (e) => {
+    e.preventDefault();
+    if (ed.busy) { stopChat(); return; }
+    const text = $("prompt").value.trim(); if (text) send(text);
+  });
+
+  function setBusy(on) {
+    ed.busy = on;
+    const b = $("sendBtn");
+    b.setAttribute("aria-label", on ? "Stop" : "Send");
+    b.innerHTML = on
+      ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+  }
+
+  let liveTimer = null;
+  function pollLive() {
+    clearTimeout(liveTimer);
+    const id = ed.id;
+    liveTimer = setTimeout(async () => {
+      if (!ed.busy || ed.id !== id) return;
+      try {
+        const s = await apiGet("/chat/status");
+        const box = $("msgs"), atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+        if (s.busy) {
+          const lt = $("liveText"), st = $("liveStage");
+          if (lt && s.reply !== undefined) lt.textContent = s.reply;
+          if (st && !st.dataset.stopping) st.textContent = s.stage || "Working…";
+          if (atBottom) scrollChat();
+        } else if (ed.busy && !ed.waitingReply) {
+          // Request finished in another tab or after a reload
+          ed.data = await apiGet(""); setBusy(false); renderEditor(); await refreshOpen(); return;
+        }
+      } catch {}
+      pollLive();
+    }, 600);
+  }
+
+  async function send(text) {
+    if (ed.busy || !ed.data) return;
+    if (ed.attachments.some(a => a.status === "reading")) { alert("Wait until the attached files have been read."); return; }
+    if (ed.dirty && !(await saveFile(false))) return;
+    const id = ed.id, selection = ed.selection, selFile = ed.selFile, before = ed.data.version;
+    const atts = ed.attachments.filter(a => a.status === "ready").map(a => ({ name: a.name, text: a.text }));
+    ed.data.messages.push({ role: "user", text, selection: selection || undefined, selection_file: selFile || undefined,
+                            attachments: atts.length ? atts.map(a => a.name) : undefined });
+    $("prompt").value = ""; autoGrow(); setSelection(""); ed.attachments = []; renderAttachments();
+    setBusy(true); ed.waitingReply = true; renderMessages(); pollLive();
+    if (isSmall()) setPane("chat");
+    try {
+      const d = await api("/chat", {
+        message: text, selection, open_path: selFile || ed.open || "", attachments: atts,
+        model: $("edModel").value.trim(),
+        api_key: $("api_key").value.trim() || store.get("api_key") || "",
+      });
+      if (ed.id === id) ed.data = d;
+    } catch (err) {
+      if (ed.id === id) ed.data.messages.push({ role: "assistant", text: netMessage(err), error: true });
+    }
+    ed.waitingReply = false;
+    clearTimeout(liveTimer);
+    setBusy(false);
+    if (ed.id !== id) return;
+    renderEditor();
+    await refreshOpen();
+    if (ed.data.version !== before && ed.data.latex.engine) compile();
+  }
+  async function stopChat() {
+    $("sendBtn").disabled = true;
+    await api("/stop").catch(() => {});
+    $("sendBtn").disabled = false;
+    const el = $("liveStage"); if (el) { el.dataset.stopping = "1"; el.textContent = "Stopping…"; }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

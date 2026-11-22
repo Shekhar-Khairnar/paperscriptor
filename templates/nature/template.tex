@@ -1,0 +1,81 @@
+% Nature Article template, built on the official Springer Nature LaTeX template
+% (sn-jnl.cls, Version 3.1 December 2024) with the Nature reference style (sn-nature).
+% Section order follows the Nature formatting guide:
+%   title, authors, summary paragraph, main text, references, figure legends,
+%   Methods (with Data and Code availability), end notes.
+% Keep everything in this single .tex file (Nature asks for one .tex file; do not use \input).
+
+\documentclass[pdflatex,sn-nature,lineno,referee]{sn-jnl}% referee = double spacing, lineno = line numbers
+
+\usepackage{graphicx}%
+\usepackage{multirow}%
+\usepackage{amsmath,amssymb,amsfonts}%
+\usepackage{amsthm}%
+\usepackage{xcolor}%
+\usepackage{textcomp}%
+\usepackage{booktabs}%
+
+\raggedbottom
+
+\begin{document}
+
+%%%%%%%%% TITLE (max 75 characters, no acronyms or abbreviations) %%%%%%%%%
+\title[Short Title]{Article Title}
+
+\author*[1]{\fnm{Anonymous} \sur{Author}}\email{author@example.org}
+\affil*[1]{\orgdiv{Department}, \orgname{Organization}, \orgaddress{\city{City}, \country{Country}}}
+
+%%%%%%%%% SUMMARY PARAGRAPH %%%%%%%%%
+\abstract{Summary paragraph here.}
+%%%%%%%%% SUMMARY PARAGRAPH %%%%%%%%%
+
+\maketitle
+
+\section{Introduction}\label{sec:intro}
+%%%%%%%%% INTRODUCTION %%%%%%%%%
+% Nature Articles have NO separate Related Work section: discuss prior work here
+% (and in the Discussion). The Introduction has no subheadings.
+Introduction here.
+%%%%%%%%% INTRODUCTION %%%%%%%%%
+
+\section{Results}\label{sec:results}
+%%%%%%%%% RESULTS %%%%%%%%%
+% Use short subsections (subheadings of at most 40 characters, including spaces).
+Results here.
+%%%%%%%%% RESULTS %%%%%%%%%
+
+\section{Discussion}\label{sec:discussion}
+%%%%%%%%% DISCUSSION %%%%%%%%%
+Discussion here.
+%%%%%%%%% DISCUSSION %%%%%%%%%
+
+\section{Methods}\label{sec:methods}
+%%%%%%%%% METHODS %%%%%%%%%
+% Up to about 3,000 words, divided by short headings. No figures or tables in Methods.
+Methods here.
+%%%%%%%%% METHODS %%%%%%%%%
+
+\backmatter
+
+%%%%%%%%% END NOTES %%%%%%%%%
+\bmhead{Data availability}
+Data availability statement here.
+
+\bmhead{Code availability}
+Code availability statement here.
+
+\bmhead{Acknowledgements}
+Acknowledgements here.
+
+\bmhead{Author contributions}
+Author contributions here.
+
+\bmhead{Competing interests}
+The authors declare no competing interests.
+%%%%%%%%% END NOTES %%%%%%%%%
+
+%%%%%%%%% REFERENCES %%%%%%%%%
+\bibliography{references}
+%%%%%%%%% REFERENCES %%%%%%%%%
+
+\end{document}

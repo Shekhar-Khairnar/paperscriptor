@@ -1,0 +1,101 @@
+"""Command-line tests with a mocked model and LaTeX engine (no network, no credits). Run: python tests/test_cli.py"""
+import contextlib, io, os, shutil, sys, tempfile, time, zipfile
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ["OPENROUTER_API_KEY"] = "sk-or-test"
+import app, cli, latex, pipeline, workspace
+
+TMP = tempfile.mkdtemp()
+app.RUNS_DIR = TMP
+
+
+def run(*argv):
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cli.main(list(argv))
+    return code, out.getvalue() + err.getvalue()
+
+
+# ---- empty state ----
+code, out = run("list")
+assert code == 0 and "No papers yet" in out
+code, out = run("ask", "last", "hi")
+assert code == 2 and "no papers yet" in out.lower(), out
+
+# ---- import a folder ----
+src = os.path.join(TMP, "_src", "MyPaper"); os.makedirs(os.path.join(src, "sections"))
+open(os.path.join(src, "main.tex"), "w").write("\\documentclass{article}\n\\title{CLI Paper}\n\\begin{document}\n\\input{sections/intro}\nOld text.\n\\end{document}\n")
+open(os.path.join(src, "sections", "intro.tex"), "w").write("\\section{Intro}\nHello.\n")
+open(os.path.join(src, "supp.tex"), "w").write("\\documentclass{article}\\begin{document}S\\end{document}\n")
+code, out = run("import", src)
+assert code == 0 and "Main file: main.tex" in out and "supp.tex" in out, out
+pid = workspace.list_projects(TMP)[0]["id"]
+code, out = run("list")
+assert pid in out and "CLI Paper" in out and "imported" in out
+code, out = run("files", pid[-8:])
+assert "main.tex  [main]" in out and "sections/intro.tex" in out, out
+
+# ---- ask: edit two files, with live stages and diff ----
+replies = ["I updated both files.\n\nmain.tex\n<<<<<<< SEARCH\nOld text.\n=======\nNew text.\n>>>>>>> REPLACE\n\n"
+           "sections/intro.tex\n<<<<<<< SEARCH\nHello.\n=======\nHello, world.\n>>>>>>> REPLACE"]
+def fake_stream(self, model, system, user, temperature=0.7, history=(), on_text=None):
+    fake_stream.user = user
+    self.job.add_cost(0.0004)
+    on_text and on_text(replies[0][:30]); time.sleep(0.5)
+    return replies.pop(0)
+pipeline.LLM.stream_chat = fake_stream
+notes = os.path.join(TMP, "_src", "reviews.md"); open(notes, "w").write("Reviewer 2: the intro is too short.")
+latex.engine = lambda: None
+code, out = run("ask", "last", "Fix the text", "--file", "main.tex", "--attach", notes, "--diff")
+assert code == 0, out
+assert "I updated both files." in out and "Changed main.tex, sections/intro.tex" in out and "+New text." in out, out
+assert "=== ATTACHED: reviews.md ===" in fake_stream.user
+r = workspace.run_dir(TMP, pid)
+assert "New text." in open(os.path.join(r, "paper", "main.tex")).read()
+
+# ---- versions, undo, restore ----
+code, out = run("versions", "last")
+assert "* v2" in out and "v1" in out, out
+code, out = run("undo", "last")
+assert code == 0 and "version 1" in out and "Old text." in open(os.path.join(r, "paper", "main.tex")).read()
+code, out = run("restore", "last", "2")
+assert "New text." in open(os.path.join(r, "paper", "main.tex")).read()
+
+# ---- compile: no engine, then a fake one, choosing another main file ----
+code, out = run("compile", "last")
+assert code == 2 and "setup-latex" in out
+def fake_compile(paper_dir, main="main.tex", timeout=600, search_dirs=()):
+    pdf = os.path.join(paper_dir, os.path.splitext(os.path.basename(main))[0] + ".pdf"); open(pdf, "wb").write(b"%PDF")
+    return {"ok": True, "pdf": pdf, "engine": "tectonic", "errors": [], "seconds": 0.5, "message": ""}
+latex.engine = lambda: "tectonic"; latex.compile_project = fake_compile
+code, out = run("compile", "last", "--main", "supp.tex")
+assert code == 0 and "Compiled supp.tex with tectonic" in out and "supp.pdf" in out, out
+
+# ---- export ----
+dest = os.path.join(TMP, "_src", "out.zip")
+code, out = run("export", "last", "-o", dest)
+assert code == 0 and "main.tex" in zipfile.ZipFile(dest).namelist()
+
+# ---- write: full pipeline with a mocked model ----
+idea = os.path.join(TMP, "_src", "idea.md"); open(idea, "w").write("We propose a tiny model.")
+log = os.path.join(TMP, "_src", "results.csv"); open(log, "w").write("model,acc\nours,91.2\n")
+called = {}
+def fake_run(job, cfg):
+    called["cfg"] = cfg
+    job.log("Step 1/5 · Outline agent")
+    os.makedirs(os.path.join(job.run_dir, "paper"), exist_ok=True)
+    open(os.path.join(job.run_dir, "paper", "main.tex"), "w").write("\\documentclass{article}\\title{Tiny}\\begin{document}x\\end{document}")
+    job.status = "done"; job.log("Finished.")
+pipeline.run_pipeline = fake_run
+code, out = run("write", "--idea", idea, "--log", log, "--template", "nature", "--rounds", "0", "--no-web")
+assert code == 0, out
+assert "Step 1/5" in out and "Done. Project:" in out, out
+cfg = called["cfg"]
+assert "tiny model" in cfg["idea"] and "91.2" in cfg["experimental_log"] and cfg["refine_rounds"] == 0 and cfg["use_web"] is False
+assert cfg["template_dir"].endswith(os.path.join("templates", "nature"))
+code, out = run("write", "--idea", idea, "--template", "nope")
+assert code == 2 and "Unknown template" in out
+code, out = run("write", "--idea", os.path.join(TMP, "missing.md"))
+assert code == 2
+
+shutil.rmtree(TMP, ignore_errors=True)
+print("ALL CLI TESTS PASSED")

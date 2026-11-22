@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below, and please also cite the PaperOrchestra paper it builds on."
+title: "Paper Orchestra Local: a local web app and CLI for writing and editing LaTeX research papers with LLMs"
+type: software
+authors:
+  - family-names: Khairnar
+    given-names: Shekhar Madhav
+version: 1.0.0
+date-released: 2026-11-22
+license: Apache-2.0
+keywords:
+  - large language models
+  - scientific writing
+  - LaTeX
+  - multi-agent systems
+  - OpenRouter
+references:
+  - type: article
+    title: "PaperOrchestra: A Multi-Agent Framework for Automated AI Research Paper Writing"
+    authors:
+      - family-names: Song
+        given-names: Yiwen
+      - family-names: Song
+        given-names: Yale
+      - family-names: Pfister
+        given-names: Tomas
+      - family-names: Yoon
+        given-names: Jinsung
+    journal: "arXiv preprint arXiv:2604.05018"
+    year: 2026
