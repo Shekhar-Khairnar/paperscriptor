@@ -53,8 +53,6 @@ RECOMMENDED_MODELS = [
     ("openai/gpt-oss-120b", "Very cheap"),
     ("openai/gpt-oss-20b", "Very cheap"),
     ("deepseek/deepseek-v4.1-flash", "Cheapest"),
-    ("google/gemini-3.1-pro-preview", "Best writing · about $1–2 per paper"),
-    ("anthropic/claude-sonnet-5.5", "Best writing · about $1–2 per paper"),
 ]
 TEMPLATE_LABELS = {
     "iclr2025": "ICLR 2025",

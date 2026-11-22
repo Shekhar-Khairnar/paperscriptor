@@ -43,7 +43,8 @@
     syncWebToggle();
     syncTemplate();
     fetch("/api/models").then(r => r.json()).then(d => {
-      $("models").innerHTML = d.models.map(m => `<option value="${escapeHtml(m.id)}" label="${escapeHtml(m.label)}"></option>`).join("");
+      modelChoices = d.models;
+      ["writer_model", "search_model", "edModel"].forEach(modelPicker);
       if (d.local && d.local.length) {
         $("localHint").textContent = `Local models found: ${d.local.slice(0, 3).join(", ")}${d.local.length > 3 ? "…" : ""}`;
       }
@@ -424,6 +425,37 @@
   // Papers list and import
   // =====================================================================
   let defaultModel = "";
+  let modelChoices = [];
+
+  // Model boxes: a dropdown with the short list, plus "Other model..." that reveals a text box for any id
+  function modelPicker(id) {
+    const input = $(id);
+    let sel = $(id + "Pick");
+    if (!sel) {
+      sel = document.createElement("select");
+      sel.id = id + "Pick";
+      input.parentNode.insertBefore(sel, input);
+      const label = document.querySelector(`label[for="${id}"]`);
+      if (label) label.htmlFor = sel.id;
+      input.placeholder = "Any OpenRouter model id, or ollama/<model>";
+      input.setAttribute("aria-label", "Other model id");
+      sel.addEventListener("change", () => {
+        if (sel.value === "__other__") { input.hidden = false; input.value = ""; input.focus(); }
+        else { input.value = sel.value; input.hidden = true; }
+        input.dispatchEvent(new Event("change"));
+      });
+    }
+    sel.innerHTML = modelChoices.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)} · ${escapeHtml(m.label)}</option>`).join("")
+      + `<option value="__other__">Other model…</option>`;
+    syncModelPicker(id);
+  }
+  function syncModelPicker(id) {
+    const input = $(id), sel = $(id + "Pick");
+    if (!sel) return;
+    const known = modelChoices.some(m => m.id === input.value);
+    sel.value = known ? input.value : "__other__";
+    input.hidden = known;
+  }
   const OLD_DEFAULTS = ["google/gemini-3-flash-preview"];
   async function loadPapers() {
     const d = await fetch("/api/projects").then(r => r.json()).catch(() => ({ projects: [] }));
@@ -610,6 +642,7 @@ It's moved to the runs/_deleted folder, so you can still get it back from there.
       renderAttachments();
     }
     $("edModel").value = store.get("editor_model") || store.get("writer_model") || defaultModel;
+    syncModelPicker("edModel");
     $("zipLink").href = `/api/projects/${id}/zip`;
     setPane(isSmall() ? "chat" : "source");
     setView("pdf");

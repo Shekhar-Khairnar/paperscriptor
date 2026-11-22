@@ -70,16 +70,15 @@
         <div class="row two">
           <div class="field">
             <label for="writer_model">Writing model</label>
-            <input type="text" id="writer_model" name="writer_model" list="models" spellcheck="false">
+            <input type="text" id="writer_model" name="writer_model" spellcheck="false">
             <p class="hint">Writes the outline, sections and revisions. <span id="localHint">For a local model, use <code>ollama/&lt;model&gt;</code>.</span></p>
           </div>
           <div class="field">
             <label for="search_model">Paper-search model</label>
-            <input type="text" id="search_model" name="search_model" list="models" spellcheck="false">
+            <input type="text" id="search_model" name="search_model" spellcheck="false">
             <p class="hint">Suggests papers to cite. A cheap model is fine; Inkling 2 Small knows paper titles well.</p>
           </div>
         </div>
-        <datalist id="models"></datalist>
       </section>
 
       <section class="card" aria-labelledby="h-research">
@@ -331,7 +330,7 @@
         </div>
         <div class="composer-meta">
           <label for="edModel">Model</label>
-          <input type="text" id="edModel" list="models" spellcheck="false">
+          <input type="text" id="edModel" spellcheck="false">
         </div>
       </form>
     </section>

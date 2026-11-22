@@ -113,7 +113,8 @@ m = c.get("/api/models").json()
 assert m["local"] == ["ollama/llama3.1:8b", "ollama/qwen3:14b"], m
 assert [x["id"] for x in m["models"][:2]] == m["local"] and m["models"][0]["label"].startswith("Local"), m
 assert [x["id"] for x in m["models"][2:]] == [i for i, _ in config.RECOMMENDED_MODELS]          # short list, no full catalog
-assert not any("gemini-3-flash" in x["id"] for x in m["models"])
+assert not any("gemini" in x["id"] or "claude" in x["id"] for x in m["models"])
+assert len(m["models"]) == 2 + 5
 server.requests.get = orig_get
 
 print("ALL OLLAMA TESTS PASSED")
