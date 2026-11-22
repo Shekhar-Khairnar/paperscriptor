@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperscriptor"
+version = "1.0.0"
+description = "Write and edit LaTeX research papers with LLMs, locally. Built on google-research/paper-orchestra."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Shekhar Madhav Khairnar" }]
+requires-python = ">=3.10"
+keywords = ["llm", "latex", "research", "scientific-writing", "openrouter", "multi-agent"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "requests>=2.31",
+    "json_repair>=0.25",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.27", "pyflakes>=3.0"]
+
+[project.scripts]
+paperscriptor = "paperscriptor.cli:main"
+
+[tool.setuptools]
+packages = ["paperscriptor", "paperscriptor.workspace"]
+
+[tool.setuptools.package-data]
+paperscriptor = ["static/*.html", "static/css/*", "static/js/*", "templates/*/*"]

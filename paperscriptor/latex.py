@@ -12,8 +12,9 @@ import zipfile
 
 import requests
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-TOOLS_DIR = os.path.join(ROOT, "tools", "tectonic")
+from . import config
+
+TOOLS_DIR = os.path.join(config.TOOLS_DIR, "tectonic")
 TECTONIC_EXE = os.path.join(TOOLS_DIR, "tectonic.exe" if os.name == "nt" else "tectonic")
 
 # Official release from github.com/tectonic-typesetting/tectonic, pinned with its published SHA-256.

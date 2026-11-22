@@ -2,10 +2,10 @@
 import contextlib, io, os, shutil, sys, tempfile, time, zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["OPENROUTER_API_KEY"] = "sk-or-test"
-import app, cli, latex, pipeline, workspace
+from paperscriptor import cli, config, latex, llm, pipeline, server, workspace
 
 TMP = tempfile.mkdtemp()
-app.RUNS_DIR = TMP
+config.RUNS_DIR = TMP
 
 
 def run(*argv):
@@ -42,7 +42,7 @@ def fake_stream(self, model, system, user, temperature=0.7, history=(), on_text=
     self.job.add_cost(0.0004)
     on_text and on_text(replies[0][:30]); time.sleep(0.5)
     return replies.pop(0)
-pipeline.LLM.stream_chat = fake_stream
+llm.LLM.stream_chat = fake_stream
 notes = os.path.join(TMP, "_src", "reviews.md"); open(notes, "w").write("Reviewer 2: the intro is too short.")
 latex.engine = lambda: None
 code, out = run("ask", "last", "Fix the text", "--file", "main.tex", "--attach", notes, "--diff")

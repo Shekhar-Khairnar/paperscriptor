@@ -1,15 +1,18 @@
 """Command-line interface for PaperScriptor. Everything the web app does, from a terminal.
 
+Run it as `paperscriptor <command>` (after `pip install -e .`) or `python -m paperscriptor <command>`.
+With no command, it starts the web app.
+
 Examples
-  python cli.py write --idea notes.md --log results.csv --template nature
-  python cli.py import my-overleaf-project.zip
-  python cli.py list
-  python cli.py ask last "Shorten the abstract to 150 words"
-  python cli.py ask last "Add citations for the claims in the introduction" --file sections/intro.tex
-  python cli.py compile last
-  python cli.py undo last
-  python cli.py export last -o paper.zip
-  python cli.py serve
+  paperscriptor write --idea notes.md --log results.csv --template nature
+  paperscriptor import my-overleaf-project.zip
+  paperscriptor list
+  paperscriptor ask last "Shorten the abstract to 150 words"
+  paperscriptor ask last "Add citations for the claims in the introduction" --file sections/intro.tex
+  paperscriptor compile last
+  paperscriptor undo last
+  paperscriptor export last -o paper.zip
+  paperscriptor serve
 
 PROJECT can be "last" (the most recently changed paper), a full id from `list`, or its start or end
 (e.g. the last 8 characters).
@@ -23,11 +26,7 @@ import sys
 import threading
 import time
 
-import app  # loads .env and shares the settings and run logic with the web app
-import ingest
-import latex
-import pipeline
-import workspace
+from . import config, ingest, latex, pipeline, server, workspace
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -43,7 +42,7 @@ class CliError(Exception):
 # --------------------------------------------------------------------------- #
 def resolve(project: str) -> str:
     """Turn 'last', a full id or an id prefix into a run folder."""
-    projects = workspace.list_projects(app.RUNS_DIR)
+    projects = workspace.list_projects(config.RUNS_DIR)
     if not projects:
         raise CliError("There are no papers yet. Use `write` or `import` first.")
     if project in ("last", "latest", ""):
@@ -52,11 +51,11 @@ def resolve(project: str) -> str:
         hits = [p["id"] for p in projects if p["id"] == project] or \
                [p["id"] for p in projects if p["id"].startswith(project) or p["id"].endswith(project)]
         if not hits:
-            raise CliError(f"No paper matches '{project}'. Run `python cli.py list` to see them.")
+            raise CliError(f"No paper matches '{project}'. Run `paperscriptor list` to see them.")
         if len(hits) > 1:
             raise CliError(f"'{project}' matches several papers: {', '.join(hits)}")
         pid = hits[0]
-    return workspace.run_dir(app.RUNS_DIR, pid)
+    return workspace.run_dir(config.RUNS_DIR, pid)
 
 
 def read_doc(path: str) -> str:
@@ -92,7 +91,7 @@ def need_key(args) -> str:
 def print_compile(d: dict):
     c = d.get("compile") or {}
     if not c.get("engine"):
-        print("No LaTeX engine yet. Run `python cli.py setup-latex` (or install MiKTeX / TeX Live).")
+        print("No LaTeX engine yet. Run `paperscriptor setup-latex` (or install MiKTeX / TeX Live).")
         return
     pdf = workspace.pdf_path(d["run_dir"])
     print(f"Compiled {c.get('main')} with {c.get('engine')} in {c.get('seconds')}s.")
@@ -137,14 +136,14 @@ def cmd_write(args):
                 uploads.append((os.path.basename(template), f.read()))
         template = "__custom__"
     try:
-        job, cfg = app.prepare_run(
+        job, cfg = server.prepare_run(
             api_key=need_key(args), writer_model=args.writer, search_model=args.searcher, template=template,
             template_rules=args.rules or "", cutoff=args.cutoff or "", use_literature=not args.no_literature,
             use_web=not args.no_web and not args.no_literature, refine_rounds=args.rounds,
             s2_api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""), openalex_api_key=os.environ.get("OPENALEX_API_KEY", ""),
             materials={"idea": "\n\n".join(idea_parts), "experimental_log": "\n\n".join(log_parts), "documents": docs},
             figures=figures, template_uploads=uploads)
-    except app.RunError as e:
+    except server.RunError as e:
         raise CliError(str(e))
 
     t = threading.Thread(target=pipeline.run_pipeline, args=(job, cfg), daemon=True)
@@ -167,7 +166,7 @@ def cmd_write(args):
         print(f"\nDone. Project: {pid}\nFolder:  {job.run_dir}")
         if "paper.pdf" in job.files:
             print(f"PDF:     {job.files['paper.pdf']}")
-        print(f'Next:    python cli.py ask {pid[-8:]} "your change"   or   python cli.py serve')
+        print(f'Next:    paperscriptor ask {pid[-8:]} "your change"   or   paperscriptor serve')
         return 0
     return 1
 
@@ -186,7 +185,7 @@ def cmd_import(args):
             with open(path, "rb") as f:
                 uploads.append((os.path.basename(path), f.read()))
     pid = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.urandom(4).hex()}"
-    run = os.path.join(app.RUNS_DIR, pid)
+    run = os.path.join(config.RUNS_DIR, pid)
     try:
         main = ingest.unpack_project(uploads, os.path.join(run, "paper"))
         os.makedirs(os.path.join(run, "workspace"), exist_ok=True)
@@ -203,7 +202,7 @@ def cmd_import(args):
 
 
 def cmd_list(args):
-    projects = workspace.list_projects(app.RUNS_DIR)
+    projects = workspace.list_projects(config.RUNS_DIR)
     if not projects:
         print("No papers yet.")
     for p in projects:
@@ -223,7 +222,7 @@ def cmd_files(args):
 def cmd_ask(args):
     run = resolve(args.project)
     attachments = [{"name": os.path.basename(p), "text": read_doc(p)} for p in args.attach or []]
-    model = args.model or app.DEFAULT_WRITER
+    model = args.model or config.DEFAULT_WRITER
     result, error = {}, {}
 
     def work():
@@ -271,7 +270,7 @@ def cmd_compile(args):
     if args.main:
         workspace.set_main(run, args.main)
     if not latex.engine():
-        raise CliError("No LaTeX engine yet. Run `python cli.py setup-latex` (or install MiKTeX / TeX Live).")
+        raise CliError("No LaTeX engine yet. Run `paperscriptor setup-latex` (or install MiKTeX / TeX Live).")
     print("Compiling... (the first time can take a few minutes while LaTeX packages download)")
     print_compile(workspace.compile_run(run))
     return 0
@@ -310,22 +309,22 @@ def cmd_export(args):
 
 
 def cmd_setup_latex(args):
-    import setup_latex
+    from . import setup_latex
     return setup_latex.main()
 
 
 def cmd_serve(args):
-    app.serve(port=args.port, open_browser=not args.no_browser)
+    server.serve(port=args.port, open_browser=not args.no_browser)
     return 0
 
 
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="python cli.py", description="PaperScriptor from the command line.",
+    p = argparse.ArgumentParser(prog="paperscriptor", description="PaperScriptor from the command line.",
                                 formatter_class=argparse.RawDescriptionHelpFormatter,
                                 epilog='PROJECT can be "last", a full id from `list`, or its start or end (e.g. the last 8 characters).')
     p.add_argument("--api-key", help="OpenRouter key (default: OPENROUTER_API_KEY or .env)")
-    sub = p.add_subparsers(dest="command", required=True)
+    sub = p.add_subparsers(dest="command")
 
     w = sub.add_parser("write", help="write a new paper from your notes and results")
     w.add_argument("--idea", action="append", metavar="FILE", help="idea / method notes (md, txt, pdf, docx...); repeatable")
@@ -335,8 +334,8 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--template", default="iclr2025",
                    help="iclr2025, cvpr2025, nature, or a path to your own template (.zip, folder or .tex)")
     w.add_argument("--rules", help="formatting rules for your own template, e.g. '8 pages max'")
-    w.add_argument("--writer", default=app.DEFAULT_WRITER, help=f"writing model (default {app.DEFAULT_WRITER})")
-    w.add_argument("--searcher", default=app.DEFAULT_SEARCH, help=f"paper-search model (default {app.DEFAULT_SEARCH})")
+    w.add_argument("--writer", default=config.DEFAULT_WRITER, help=f"writing model (default {config.DEFAULT_WRITER})")
+    w.add_argument("--searcher", default=config.DEFAULT_SEARCH, help=f"paper-search model (default {config.DEFAULT_SEARCH})")
     w.add_argument("--cutoff", help="only cite papers up to this month, e.g. 2025-06")
     w.add_argument("--rounds", type=int, default=1, help="review-and-refine rounds, 0 to 3 (default 1)")
     w.add_argument("--no-literature", action="store_true", help="don't search for and cite papers")
@@ -359,7 +358,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--file", help="the file you are talking about, e.g. sections/intro.tex")
     a.add_argument("--selection", help="a passage you want changed (copied from the file)")
     a.add_argument("--attach", action="append", metavar="FILE", help="attach notes, results or reviews; repeatable")
-    a.add_argument("--model", help=f"model to use (default {app.DEFAULT_WRITER})")
+    a.add_argument("--model", help=f"model to use (default {config.DEFAULT_WRITER})")
     a.add_argument("--diff", action="store_true", help="print the exact changes")
     a.add_argument("--no-compile", action="store_true", help="don't recompile after a change")
     a.set_defaults(func=cmd_ask)
@@ -390,7 +389,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("setup-latex", help="download the LaTeX engine used for PDFs (one time)").set_defaults(func=cmd_setup_latex)
 
     s = sub.add_parser("serve", help="start the web app")
-    s.add_argument("--port", type=int, default=app.PORT)
+    s.add_argument("--port", type=int, default=config.PORT)
     s.add_argument("--no-browser", action="store_true")
     s.set_defaults(func=cmd_serve)
     return p
@@ -398,6 +397,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    if not args.command:  # no command: start the web app
+        args = build_parser().parse_args(["serve"])
     try:
         return args.func(args) or 0
     except (CliError, workspace.WorkspaceError, FileNotFoundError) as e:

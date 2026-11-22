@@ -2,12 +2,12 @@
 import io, os, sys, shutil, tempfile, zipfile, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["OPENROUTER_API_KEY"] = "sk-or-test"
-import app, pipeline, workspace, latex
+from paperscriptor import config, latex, llm, pipeline, references, server, workspace
 from fastapi.testclient import TestClient
 
 TMP = tempfile.mkdtemp()
-app.RUNS_DIR = TMP
-c = TestClient(app.app)
+config.RUNS_DIR = TMP
+c = TestClient(server.app)
 
 MAIN = r"""\documentclass{article}
 \usepackage{natbib}
@@ -82,8 +82,8 @@ def fake_chat(self, model, system, user, images=(), temperature=0.7, web=False, 
     self.job.add_cost(0.004)
     return replies.pop(0)
 fake_chat.calls = []
-pipeline.LLM.chat = fake_chat
-pipeline.LLM.stream_chat = lambda self, model, system, user, temperature=0.7, history=(), on_text=None: fake_chat(self, model, system, user, history=history)
+llm.LLM.chat = fake_chat
+llm.LLM.stream_chat = lambda self, model, system, user, temperature=0.7, history=(), on_text=None: fake_chat(self, model, system, user, history=history)
 
 replies.append("""I tightened the abstract, fixed the intro sentence and added a limitations file.
 
@@ -202,13 +202,13 @@ assert d["version"] == 4 and "version" not in d["messages"][-1]
 
 # ---- model error ----
 def boom(self, *a, **k):
-    raise pipeline.LLMError("OpenRouter says the account is out of credits (402).")
-pipeline.LLM.chat = boom
-pipeline.LLM.stream_chat = boom
+    raise llm.LLMError("OpenRouter says the account is out of credits (402).")
+llm.LLM.chat = boom
+llm.LLM.stream_chat = boom
 d = c.post(f"/api/projects/{pid}/chat", json={"message": "anything"}).json()
 assert d["messages"][-1]["error"] and "402" in d["messages"][-1]["text"] and d["version"] == 4
-pipeline.LLM.chat = fake_chat
-pipeline.LLM.stream_chat = lambda self, model, system, user, temperature=0.7, history=(), on_text=None: fake_chat(self, model, system, user, history=history)
+llm.LLM.chat = fake_chat
+llm.LLM.stream_chat = lambda self, model, system, user, temperature=0.7, history=(), on_text=None: fake_chat(self, model, system, user, history=history)
 
 # ---- hand edits, new file, upload, delete, set main ----
 assert c.post(f"/api/projects/{pid}/file", json={"path": "main.tex", "text": "no class"}).status_code == 400

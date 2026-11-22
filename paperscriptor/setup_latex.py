@@ -1,4 +1,4 @@
-"""One-time setup of the LaTeX engine used for the PDF preview. run.bat calls this before starting the app.
+"""One-time setup of the LaTeX engine used for the PDF preview. run.bat calls this (`python -m paperscriptor setup-latex`) before starting the app.
 
 If MiKTeX, TeX Live or Tectonic is already installed, nothing happens. Otherwise Tectonic (a free, single-file
 LaTeX engine, about 21 MB) is downloaded from its official GitHub release into tools/tectonic and checked against
@@ -8,7 +8,7 @@ its published SHA-256 checksum. Set PAPERSCRIPTOR_NO_LATEX=1 to skip this.
 import os
 import sys
 
-import latex
+from . import latex
 
 
 def main() -> int:

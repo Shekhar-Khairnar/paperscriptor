@@ -2,12 +2,12 @@
 import gzip, io, os, sys, shutil, tempfile, threading, time, zipfile, json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["OPENROUTER_API_KEY"] = "sk-or-test"
-import app, pipeline, workspace, latex, synctex
+from paperscriptor import config, latex, llm, pipeline, references, server, synctex, workspace
 from fastapi.testclient import TestClient
 
 TMP = tempfile.mkdtemp()
-app.RUNS_DIR = TMP
-c = TestClient(app.app)
+config.RUNS_DIR = TMP
+c = TestClient(server.app)
 
 MAIN = r"""\documentclass{article}
 \begin{document}
@@ -36,8 +36,8 @@ def fake_stream(self, model, system, user, temperature=0.7, history=(), on_text=
         for i in range(0, len(text), 40):
             on_text(text[:i + 40]); time.sleep(0.01)
     return text
-pipeline.LLM.stream_chat = fake_stream
-pipeline.LLM.chat = lambda self, *a, **k: (_ for _ in ()).throw(AssertionError("chat() should not be called"))
+llm.LLM.stream_chat = fake_stream
+llm.LLM.chat = lambda self, *a, **k: (_ for _ in ()).throw(AssertionError("chat() should not be called"))
 
 # Paper databases: Longformer and Reformer exist, the made-up one doesn't; Attention is already in refs.bib
 DB = {
@@ -54,7 +54,7 @@ def fake_verify(title, year, cfg, state, job):
     looked_up.append(title)
     p = DB.get(title.lower())
     return (p, "Semantic Scholar") if p else (None, None)
-pipeline.verify_paper = fake_verify
+references.verify_paper = fake_verify
 
 # ---- 1. verified citations: FIND PAPERS -> check -> bib -> edit with new keys ----
 replies.append("""I'll look these up first.
@@ -133,7 +133,7 @@ def slow_stream(self, model, system, user, temperature=0.7, history=(), on_text=
     on_text("I'm tightening the intro.\n\nsections/intro.tex\n<<<<<<< SEARCH\nTransformers")
     gate.wait(5)
     return "I'm tightening the intro.\n\nsections/intro.tex\n<<<<<<< SEARCH\nTransformers are popular.\n=======\nTransformers are widely used.\n>>>>>>> REPLACE"
-pipeline.LLM.stream_chat = slow_stream
+llm.LLM.stream_chat = slow_stream
 result = {}
 t = threading.Thread(target=lambda: result.update(r=c.post(f"/api/projects/{pid}/chat", json={"message": "tighten"})))
 t.start()
@@ -153,15 +153,15 @@ print("live status ok:", s["stage"])
 def cancellable(self, model, system, user, temperature=0.7, history=(), on_text=None):
     for _ in range(100):
         if self.job.cancel_requested:
-            raise pipeline.Cancelled()
+            raise llm.Cancelled()
         time.sleep(0.02)
     return "never"
-pipeline.LLM.stream_chat = cancellable
+llm.LLM.stream_chat = cancellable
 t = threading.Thread(target=lambda: result.update(r=c.post(f"/api/projects/{pid}/chat", json={"message": "slow"})))
 t.start(); time.sleep(0.2)
 c.post(f"/api/projects/{pid}/stop"); t.join(5)
 assert result["r"].json()["messages"][-1]["text"].startswith("Stopped")
-pipeline.LLM.stream_chat = fake_stream
+llm.LLM.stream_chat = fake_stream
 print("stop ok")
 
 # ---- 6. rename (including the main file) ----
@@ -245,20 +245,20 @@ sse = [": OPENROUTER PROCESSING", "", 'data: {"choices":[{"delta":{"content":"He
        'data: {"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}',
        'data: {"choices":[],"usage":{"cost":0.0012}}', "data: [DONE]"]
 orig_post = rq.post
-import importlib; importlib.reload(pipeline)  # undo the mocks above for the client test
+import importlib; importlib.reload(llm)  # undo the mocks above for the client test
 rq.post = lambda *a, **k: FakeResp(200, sse)
-job = pipeline.Job("x", run)
+job = llm.Job("x", run)
 seen = []
-out = pipeline.LLM("k", job).stream_chat("m", "sys", "hi", on_text=seen.append)
+out = llm.LLM("k", job).stream_chat("m", "sys", "hi", on_text=seen.append)
 assert out == "Hello" and seen == ["Hel", "Hello"] and abs(job.cost - 0.0012) < 1e-9, (out, seen, job.cost)
 fell = []
-pipeline.LLM.chat = lambda self, *a, **k: fell.append(1) or "fallback"
+llm.LLM.chat = lambda self, *a, **k: fell.append(1) or "fallback"
 rq.post = lambda *a, **k: FakeResp(401, [])
-assert pipeline.LLM("k", job).stream_chat("m", "sys", "hi") == "fallback" and fell
+assert llm.LLM("k", job).stream_chat("m", "sys", "hi") == "fallback" and fell
 rq.post = lambda *a, **k: FakeResp(200, ['data: {"error":{"message":"Provider overloaded"}}'])
 try:
-    pipeline.LLM("k", job).stream_chat("m", "sys", "hi"); raise SystemExit("expected error")
-except pipeline.LLMError as e:
+    llm.LLM("k", job).stream_chat("m", "sys", "hi"); raise SystemExit("expected error")
+except llm.LLMError as e:
     assert "Provider overloaded" in str(e)
 rq.post = orig_post
 print("streaming client ok")

@@ -8,18 +8,18 @@ This project includes material from other projects:
 1. PaperOrchestra (https://github.com/google-research/paper-orchestra)
    Copyright Google LLC. Licensed under the Apache License, Version 2.0
    (a copy is in licenses/paper-orchestra-LICENSE.txt).
-   - prompts.py: the agent prompts are copied word for word from the original repository.
-   - templates/iclr2025 and templates/cvpr2025: copied from the original repository.
-   - pipeline.py: the outline, literature, section-writing and refinement steps are a port of the
+   - paperscriptor/prompts.py: the agent prompts are copied word for word from the original repository.
+   - paperscriptor/templates/iclr2025 and cvpr2025: copied from the original repository.
+   - paperscriptor/pipeline.py and references.py: the outline, literature, section-writing and refinement steps are a port of the
      original pipeline, rewritten to call models through OpenRouter.
    PaperOrchestra is not an officially supported Google product, and this project is not affiliated
    with or endorsed by Google.
 
 2. Springer Nature LaTeX template, Version 3.1 (December 2024)
    (https://www.springernature.com/gp/authors/campaigns/latex-author-support)
-   - templates/nature/sn-jnl.cls and templates/nature/sn-nature.bst are unmodified copies,
+   - paperscriptor/templates/nature/sn-jnl.cls and sn-nature.bst are unmodified copies,
      distributed under the LaTeX Project Public License 1.3c (https://www.latex-project.org/lppl.txt).
-   - templates/nature/template.tex and guidelines.md were written for this project.
+   - paperscriptor/templates/nature/template.tex and guidelines.md were written for this project.
 
 3. Libraries loaded by the web page at run time from cdnjs (not included in this repository):
    CodeMirror 5 (MIT License) and PDF.js (Apache License 2.0).

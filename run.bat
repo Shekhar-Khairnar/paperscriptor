@@ -1,5 +1,5 @@
 @echo off
-rem One-click start: creates a virtual env on first run, installs deps, starts the app.
+rem One-click start: creates a virtual env on first run, installs deps, sets up LaTeX once, starts the app.
 cd /d "%~dp0"
 if not exist .venv (
   echo Creating virtual environment...
@@ -7,8 +7,8 @@ if not exist .venv (
 )
 call .venv\Scripts\activate.bat
 python -m pip install -q -r requirements.txt || goto :error
-python setup_latex.py
-python app.py
+python -m paperscriptor setup-latex
+python -m paperscriptor serve
 goto :eof
 
 :error

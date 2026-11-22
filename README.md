@@ -1,178 +1,150 @@
+<div align="center">
+
 # PaperScriptor
 
-Write a research paper from your notes and results, then keep improving it by chatting with an AI, all on your
-own computer. (*Scriptor* is Latin for "writer".)
+**Turn your notes and results into a LaTeX paper, then refine it by chatting with AI, all on your own machine.**
 
-You give it your idea, your experiment results and (optionally) a LaTeX template. A team of AI "agents" plans the
-paper, finds and checks real references, writes every section in LaTeX, reviews the draft and revises it. Then you
-open the paper in an editor where you see all your files and the PDF side by side, and ask for changes in plain
-words, like *"shorten the abstract"* or *"add citations for the claims in the introduction"*.
+Built on Google Research's [PaperOrchestra](https://github.com/google-research/paper-orchestra) · Any model via [OpenRouter](https://openrouter.ai) · Web app + CLI · Apache-2.0
 
-It is built on Google Research's [PaperOrchestra](https://github.com/google-research/paper-orchestra) and runs
-every AI call through [OpenRouter](https://openrouter.ai), so one API key works with almost any model.
+⭐ **If PaperScriptor helps you, please star the repo and [cite it](#citation).** ⭐
 
-![Writing a paper: your notes on the left, live progress on the right](docs/screenshots/home.png)
+</div>
 
-![The editor: project files, LaTeX source, PDF preview and chat](docs/screenshots/editor.png)
+![Write a paper: your notes on the left, live progress on the right](docs/screenshots/home.png)
 
-![A chat edit that added two verified references and cited them, with the exact changes shown](docs/screenshots/chat-citations.png)
+## Why PaperScriptor
 
-*The screenshots use a made-up demo paper and made-up numbers.*
+| | |
+|---|---|
+| ✍️ **Writes the whole paper** | Outline → literature review → sections → AI review and revision, in your venue's LaTeX template. |
+| 🔎 **Real references only** | Every citation is checked on Semantic Scholar / OpenAlex. Papers that don't exist never reach your `.bib`. |
+| 💬 **Edit by chatting** | "Shorten the abstract", "address reviewer 2", "add citations here": it edits several files at once and shows the diff. |
+| 📄 **A full LaTeX editor** | File tree, code editor, live PDF, double-click the PDF to jump to the source, versions and undo. |
+| 🔒 **Local and cheap** | Runs on `127.0.0.1`. A full paper costs about **$1**; a chat edit costs a fraction of a cent. |
 
-## What you can do with it
+![The editor: files, source, PDF and chat](docs/screenshots/editor.png)
 
-**Write a new paper**
-- Type or paste your idea and results, or add documents: Markdown, text, PDF, Word (`.docx`), CSV, JSON or LaTeX.
-- Add figures with captions.
-- Pick a template: ICLR 2025, CVPR 2025, Nature (Springer Nature), or upload your own journal's LaTeX kit.
-- Real references only: the AI suggests papers, and each one is checked on Semantic Scholar (with OpenAlex as
-  backup). Papers that can't be found are dropped.
-- An AI reviewer scores the draft and the writer revises it. A revision is kept only if the score doesn't drop.
+![A chat edit that found two real papers, added them to the bibliography and cited them](docs/screenshots/chat-citations.png)
 
-**Edit a paper, like a LaTeX editor with an AI assistant**
-- Open a paper the app wrote, or import any LaTeX project (for example an Overleaf download).
-- See every file in the project. Pick which `.tex` file to compile, such as the main paper or the supplementary.
-- A code editor with line numbers, highlighting and search; a PDF preview that keeps your place when it rebuilds.
-- Double-click the PDF to jump to that line in the source, or jump from a source line to the PDF.
-- Ask for changes in chat. The AI can edit several files in one go, and you see exactly what changed.
-- Ask for citations: the AI names papers, the app checks they really exist, adds them to your `.bib` and cites them.
-- Attach notes, results or reviewer comments to a message ("address reviewer 2's comments").
-- Undo any change; every version of the whole project is kept.
-- Missing figures show as grey placeholders and are listed, so you still get a PDF.
-- Download the project as a `.zip` to continue on Overleaf.
-
-**Use it from the command line too.** Everything above also works in a terminal (see [Command line](#command-line)).
+<sub>Screenshots use a made-up demo paper.</sub>
 
 ## Quick start
 
-You need **Python 3.10 or newer** and an **[OpenRouter API key](https://openrouter.ai/settings/keys)**.
+Requires **Python 3.10+** and an **[OpenRouter key](https://openrouter.ai/settings/keys)**.
 
-**Windows:** double-click **`run.bat`**. The first time, it sets up everything it needs, including a free LaTeX
-engine for the PDF preview ([Tectonic](https://tectonic-typesetting.github.io), about 21 MB). The app then opens at
-http://127.0.0.1:8000.
+**Windows:** double-click **`run.bat`**. It installs everything, including a free LaTeX engine for PDFs, and opens
+<http://127.0.0.1:8000>.
 
-**macOS / Linux, or by hand:**
+**Any OS:**
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python setup_latex.py              # Windows only; elsewhere install TeX Live or Tectonic for PDFs
-python app.py
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e .
+paperscriptor setup-latex    # Windows; on macOS/Linux install TeX Live or Tectonic instead
+paperscriptor                # starts the web app
 ```
 
-Paste your OpenRouter key into the page, or save it once in a `.env` file (copy `.env.example` to `.env`).
-The app only listens on your own computer.
+Paste your key into the page, or put it in `.env` (copy `.env.example`).
 
-## Using the app
+## Features
 
-1. **Write:** fill in your idea and results (or add documents), choose a template and press **Write my paper**.
-   A full run usually takes 10 to 25 minutes. You can watch every step.
-2. **Edit:** press **Open in editor**, or pick a paper under **Your papers**, or press **Open a LaTeX project
-   (.zip)** to bring in an existing project.
-3. In the editor:
-   - **Files** (left): click to open; drag files in to upload; the file marked **MAIN** is the one compiled.
-   - **Source:** edit by hand; **Ctrl+S** saves and recompiles; **Ctrl+F** searches; **Ctrl+J** shows the line in the PDF.
-   - **PDF:** double-click to jump to the source. LaTeX errors are listed with links to the right line.
-   - **Chat** (right): ask for changes. Replies appear as the model writes them; **Stop** cancels.
-   - **Version list** (top right): go back to any earlier version. **.zip** downloads the project.
+**Write**
 
-Each paper lives in its own folder under `runs/`. Deleting a paper from the list moves it to `runs/_deleted/`.
+- Input as text or documents: Markdown, PDF, Word, CSV, JSON, LaTeX. Figures with captions.
+- Templates: ICLR 2025, CVPR 2025, Nature (Springer Nature), or **your own journal kit** (.zip / folder).
+- Tables use only your numbers. A revision is kept only if the AI reviewer's score doesn't drop.
+
+**Edit** (any LaTeX project, including Overleaf downloads)
+
+- See every file; choose which `.tex` to compile (main paper or supplementary).
+- Multi-file AI edits with diffs, **verified citations**, file attachments ("address these reviews").
+- CodeMirror editor, PDF.js preview that keeps your place, PDF ↔ source jumps (SyncTeX).
+- Compiles past errors like Overleaf, with clickable error lines. Missing figures become placeholders.
+- Every version of the whole project is saved. Export a `.zip` for Overleaf any time.
 
 ## Command line
 
 ```bash
-# Write a paper
-python cli.py write --idea notes.md --log results.csv --template nature
-python cli.py write --idea idea.pdf --doc draft.docx:both --figure plot.png:"Accuracy vs. steps" --template my_journal_kit.zip
-
-# Work on a paper ("last" means the most recently changed one)
-python cli.py import my-overleaf-project.zip
-python cli.py list
-python cli.py ask last "Shorten the abstract to 150 words" --diff
-python cli.py ask last "Add citations for efficient attention" --file sections/intro.tex
-python cli.py ask last "Address these comments" --attach reviews.pdf
-python cli.py compile last --main supplementary.tex
-python cli.py versions last
-python cli.py undo last
-python cli.py export last -o paper.zip
-
-# Other
-python cli.py setup-latex       # download the LaTeX engine (one time)
-python cli.py serve             # start the web app
-python cli.py --help            # every option
+paperscriptor write --idea notes.md --log results.csv --template nature
+paperscriptor import my-overleaf-project.zip
+paperscriptor ask last "Shorten the abstract to 150 words" --diff
+paperscriptor ask last "Add citations for efficient attention" --file sections/intro.tex
+paperscriptor ask last "Address these comments" --attach reviews.pdf
+paperscriptor compile last --main supplementary.tex
+paperscriptor undo last
+paperscriptor export last -o paper.zip
 ```
+
+`paperscriptor --help` lists everything. Without installing, use `python -m paperscriptor ...`.
 
 ## How it works
 
-**Writing a paper** follows the PaperOrchestra pipeline, with the same prompts:
+1. **Outline agent:** plans sections, figures and literature searches.
+2. **Literature agent:** suggests papers, verifies each one, builds `references.bib`, writes the Intro and Related Work.
+3. **Section agent:** writes method, experiments and tables from your results.
+4. **Review and refine:** an AI reviewer scores the draft; the writer revises; worse revisions are discarded.
+5. **Package:** strips unknown citations, compiles the PDF, zips the project.
 
-1. **Outline agent:** plans the sections, figures and the literature searches.
-2. **Literature agent:** a search model suggests papers (optionally using web search). Every suggestion is checked
-   on Semantic Scholar, then OpenAlex. Real papers become `references.bib`, and the Introduction and Related Work
-   are written from their abstracts.
-3. **Section writing agent:** writes the method, experiments, tables (from your results only) and figures.
-4. **Review and refine:** an AI reviewer scores the paper; the writer revises; a revision is kept only if the
-   score doesn't drop.
-5. **Package:** any citation that isn't in the bibliography is removed, the PDF is compiled, and everything is zipped.
+In the editor, the model replies with small search-and-replace edits per file. PaperScriptor applies them, rejects
+changes that would break the document, removes invented citation keys, saves a version and recompiles.
 
-**Editing in chat:** the model sees all `.tex` files in the project, your notes and results, and the list of
-bibliography keys. It answers with small search-and-replace edits for each file it changes. The app applies them
-(and asks the model once more if an edit doesn't match the text), refuses changes that would break the main file,
-removes made-up citation keys, saves a new version and recompiles.
+## Cost
 
-## What it costs
-
-You pay OpenRouter for the AI calls. The app shows the cost as it goes.
-
-| Task | With `thinkingmachines/inkling-2-small` (default) | With `google/gemini-3.1-pro-preview` |
+| | `inkling-2-small` (default) | `gemini-3.1-pro` |
 |---|---|---|
-| Write a full paper (1 review round, web search on) | about $0.70–1.00 | about $1.50–3.00 |
-| One chat edit | about $0.0005 | about $0.01 |
-| Add citations in chat | about $0.001 | about $0.02 |
+| Full paper | ~$0.70–1.00 | ~$1.50–3.00 |
+| Chat edit | ~$0.0005 | ~$0.01 |
 
-Turning web search off saves about $0.50 per paper. Semantic Scholar and OpenAlex are free.
+Web search adds about $0.50 per paper (optional). Reference checks are free.
 
 ## Privacy
 
-- The app runs on `127.0.0.1` and stores everything in `runs/` on your computer.
-- Your text goes to OpenRouter (and the model provider you choose) to be processed.
-- Paper titles are sent to Semantic Scholar and OpenAlex to check that references exist.
-- The editor page loads CodeMirror and PDF.js from cdnjs. Without internet it falls back to a plain text box and
-  your browser's PDF viewer.
+Everything is stored in `runs/` on your machine. Your text is sent only to OpenRouter (and the model you pick).
+Paper titles are sent to Semantic Scholar and OpenAlex for verification.
 
-## Optional settings
+<details>
+<summary><b>Configuration</b></summary>
 
-Put these in `.env` (see `.env.example`):
+Set in `.env`:
 
-| Variable | What it does |
+| Variable | Purpose |
 |---|---|
-| `OPENROUTER_API_KEY` | Your OpenRouter key, so you don't have to paste it |
-| `SEMANTIC_SCHOLAR_API_KEY` | Faster, more reliable reference checks ([get one](https://www.semanticscholar.org/product/api)) |
-| `OPENALEX_API_KEY` | Raises the backup database's free daily limit ([get one](https://openalex.org/settings/api)) |
-| `PORT` | Port for the web app (default 8000) |
+| `OPENROUTER_API_KEY` | Your OpenRouter key |
+| `SEMANTIC_SCHOLAR_API_KEY` | Faster reference checks ([get one](https://www.semanticscholar.org/product/api)) |
+| `OPENALEX_API_KEY` | Higher limit for the backup database ([get one](https://openalex.org/settings/api)) |
+| `PORT` | Web app port (default 8000) |
+| `PAPERSCRIPTOR_HOME` | Where `runs/`, `tools/` and `.env` live (default: the repo folder) |
 
-## Project layout
+</details>
 
-| Path | What it is |
-|---|---|
-| `app.py` | Web server (FastAPI) and the web app's API |
-| `cli.py` | Command-line interface |
-| `pipeline.py` | The paper-writing agents and the OpenRouter client |
-| `prompts.py` | Agent prompts from PaperOrchestra |
-| `workspace.py` | The editor: files, chat edits, versions, verified citations, compiling |
-| `latex.py`, `synctex.py`, `setup_latex.py` | Compiling to PDF, PDF-to-source jumps, LaTeX engine setup |
-| `ingest.py` | Reading PDF, Word and text files; importing templates and projects |
-| `static/index.html` | The whole web interface |
-| `templates/` | ICLR 2025, CVPR 2025 and Nature templates |
-| `tests/` | Tests that use a fake model and fake LaTeX, so they cost nothing |
+<details>
+<summary><b>Project structure</b></summary>
 
-Run the tests with `pip install -r requirements-dev.txt`, then `python tests/test_editor.py`,
-`python tests/test_editor2.py` and `python tests/test_cli.py`.
+```text
+paperscriptor/
+├── server.py          web app (FastAPI)
+├── cli.py             command line
+├── pipeline.py        paper-writing agents
+├── llm.py             OpenRouter client (streaming)
+├── references.py      Semantic Scholar / OpenAlex checks, BibTeX
+├── prompts.py         PaperOrchestra prompts
+├── workspace/         editor: project.py · chat.py · build.py
+├── latex.py           compiling, error parsing, LaTeX setup
+├── synctex.py         PDF ↔ source jumps
+├── ingest.py          PDF / Word / zip import
+├── config.py          paths and settings
+├── static/            index.html · css/app.css · js/app.js
+└── templates/         iclr2025 · cvpr2025 · nature
+tests/                 offline tests (fake model, fake LaTeX)
+```
+
+Run the tests: `pip install -e ".[dev]"`, then `python tests/run_all.py`.
+
+</details>
 
 ## Citation
 
-If you use this software, please cite it:
+If PaperScriptor helps your work, please cite it, and star ⭐ the repo so others can find it.
 
 ```bibtex
 @software{khairnar2026paperscriptor,
@@ -183,7 +155,7 @@ If you use this software, please cite it:
 }
 ```
 
-This project builds on PaperOrchestra. Please also cite the original paper:
+Please also cite **PaperOrchestra**, which this project builds on:
 
 ```bibtex
 @article{song2026paperorchestra,
@@ -194,19 +166,13 @@ This project builds on PaperOrchestra. Please also cite the original paper:
 }
 ```
 
-GitHub also shows a "Cite this repository" button from [`CITATION.cff`](CITATION.cff).
-
 ## License
 
-Apache License 2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+[Apache-2.0](LICENSE). See [NOTICE](NOTICE) for third-party parts:
 
-- The prompts, the ICLR/CVPR templates and the pipeline design come from
-  [google-research/paper-orchestra](https://github.com/google-research/paper-orchestra) (Apache-2.0,
-  [license copy](licenses/paper-orchestra-LICENSE.txt)). This project is not affiliated with or endorsed by Google.
-- `templates/nature/sn-jnl.cls` and `sn-nature.bst` are unmodified files from the
-  [Springer Nature LaTeX template](https://www.springernature.com/gp/authors/campaigns/latex-author-support)
-  (Version 3.1), under the [LaTeX Project Public License 1.3c](https://www.latex-project.org/lppl.txt). Check
-  [Nature's formatting guide](https://www.nature.com/nature/for-authors/formatting-guide) before you submit.
+- Prompts, ICLR/CVPR templates and pipeline design come from
+  [google-research/paper-orchestra](https://github.com/google-research/paper-orchestra) (Apache-2.0). This project is
+  not affiliated with Google.
+- The Springer Nature class files are under LPPL 1.3c.
 
-AI can make mistakes. Read every paper it writes, check that every number matches your results, and make sure your
-venue allows AI-assisted writing.
+> **Note:** AI makes mistakes. Check every number and claim, and follow your venue's policy on AI-assisted writing.

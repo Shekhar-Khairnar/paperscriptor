@@ -1,8 +1,6 @@
-"""Local web app for writing a paper with the PaperOrchestra pipeline over OpenRouter.
+"""Web server: the FastAPI app behind the browser UI. Start it with `python -m paperscriptor`."""
 
-Run:  python app.py      then open http://127.0.0.1:8000
-"""
-
+import hashlib
 import json
 import os
 import re
@@ -14,70 +12,51 @@ import webbrowser
 
 import requests
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import ingest
-import latex
-import pipeline
-import workspace
-
-ROOT = os.path.dirname(os.path.abspath(__file__))
-TEMPLATES_DIR = os.path.join(ROOT, "templates")
-RUNS_DIR = os.path.join(ROOT, "runs")
-HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8000"))
-
-TEMPLATE_LABELS = {
-    "iclr2025": "ICLR 2025",
-    "cvpr2025": "CVPR 2025",
-    "nature": "Nature (Springer Nature template)",
-}
-DEFAULT_WRITER = "thinkingmachines/inkling-2-small"
-DEFAULT_SEARCH = "google/gemini-3-flash-preview"
-
-
-def load_env_file():
-    """Read KEY=VALUE lines from .env (optional) without overriding real env vars."""
-    path = os.path.join(ROOT, ".env")
-    if not os.path.exists(path):
-        return
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
-
-
-load_env_file()
+from . import config, ingest, latex, llm, pipeline, workspace
+from .config import DEFAULT_SEARCH, DEFAULT_WRITER, TEMPLATE_LABELS
 
 
 def _code_stamp() -> str:
-    """Fingerprint of the app's Python files, to notice when they change while the server keeps running."""
-    import hashlib
+    """Fingerprint of the package's Python files, to notice when they change while the server keeps running."""
     h = hashlib.sha256()
-    for name in sorted(os.listdir(ROOT)):
-        if name.endswith(".py"):
-            with open(os.path.join(ROOT, name), "rb") as f:
-                h.update(name.encode() + f.read())
+    for root, dirs, files in sorted(os.walk(config.PACKAGE_DIR)):
+        dirs[:] = sorted(d for d in dirs if d not in ("__pycache__", "static", "templates"))
+        for name in sorted(files):
+            if name.endswith(".py"):
+                with open(os.path.join(root, name), "rb") as f:
+                    h.update(os.path.relpath(os.path.join(root, name), config.PACKAGE_DIR).encode() + f.read())
     return h.hexdigest()[:16]
 
 
 LOADED_CODE = _code_stamp()
 app = FastAPI(title="PaperScriptor")
-JOBS: dict[str, pipeline.Job] = {}
+app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
+JOBS: dict[str, llm.Job] = {}
+
+
+@app.middleware("http")
+async def no_stale_ui(request: Request, call_next):
+    """Always revalidate the page and its CSS/JS, so an update shows up after a reload."""
+    response = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 _models_cache = {"at": 0.0, "data": []}
 
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(ROOT, "static", "index.html"))
+    return FileResponse(os.path.join(config.STATIC_DIR, "index.html"))
 
 
 @app.get("/api/config")
-def config():
-    ids = [d for d in os.listdir(TEMPLATES_DIR) if os.path.exists(os.path.join(TEMPLATES_DIR, d, "template.tex"))]
+def get_config():
+    ids = [d for d in os.listdir(config.TEMPLATES_DIR) if os.path.exists(os.path.join(config.TEMPLATES_DIR, d, "template.tex"))]
     order = list(TEMPLATE_LABELS)
     ids.sort(key=lambda d: (order.index(d) if d in order else len(order), d))
     return {
@@ -86,7 +65,7 @@ def config():
         "default_search": DEFAULT_SEARCH,
         "default_cutoff": pipeline.default_cutoff(),
         "env_key": bool(os.environ.get("OPENROUTER_API_KEY")),
-        "runs_dir": RUNS_DIR,
+        "runs_dir": config.RUNS_DIR,
         "restart_needed": _code_stamp() != LOADED_CODE,
     }
 
@@ -149,7 +128,7 @@ def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT
         raise RunError(str(e))
     custom = template == "__custom__"
     if not custom:
-        template_dir = os.path.join(TEMPLATES_DIR, os.path.basename(template))
+        template_dir = os.path.join(config.TEMPLATES_DIR, os.path.basename(template))
         if not os.path.exists(os.path.join(template_dir, "template.tex")):
             raise RunError(f"Unknown template '{template}'.")
     if cutoff and not re.fullmatch(r"\d{4}-\d{2}", cutoff):
@@ -159,7 +138,7 @@ def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT
             raise RunError(f"'{name}' is not a PNG, JPG or PDF figure.")
 
     job_id = uuid.uuid4().hex[:8]
-    run_dir = os.path.join(RUNS_DIR, f"{time.strftime('%Y%m%d-%H%M%S')}-{job_id}")
+    run_dir = os.path.join(config.RUNS_DIR, f"{time.strftime('%Y%m%d-%H%M%S')}-{job_id}")
     template_label = template
     if custom:
         try:
@@ -214,7 +193,7 @@ def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT
     with open(os.path.join(run_dir, "inputs", "settings.json"), "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
 
-    job = pipeline.Job(job_id, run_dir)
+    job = llm.Job(job_id, run_dir)
     JOBS[job_id] = job
     n_docs = len(mat.get("documents") or [])
     job.log(f"Run started. Template: {template_label}, writer: {cfg['writer_model']}, "
@@ -304,7 +283,7 @@ def download(job_id: str, name: str):
 # --------------------------------------------------------------------------- #
 def _run(pid: str) -> str:
     try:
-        return workspace.run_dir(RUNS_DIR, pid)
+        return workspace.run_dir(config.RUNS_DIR, pid)
     except workspace.WorkspaceError as e:
         raise HTTPException(e.code, str(e))
 
@@ -350,7 +329,7 @@ class RestoreBody(BaseModel):
 
 @app.get("/api/projects")
 def projects():
-    return {"projects": workspace.list_projects(RUNS_DIR)}
+    return {"projects": workspace.list_projects(config.RUNS_DIR)}
 
 
 @app.post("/api/projects/import")
@@ -358,7 +337,7 @@ async def import_project(files: list[UploadFile] = File(default=[])):
     """Open an existing LaTeX project (e.g. an Overleaf download) in the editor."""
     uploads = [(up.filename or "", await up.read()) for up in files or []]
     pid = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
-    run = os.path.join(RUNS_DIR, pid)
+    run = os.path.join(config.RUNS_DIR, pid)
     try:
         main = ingest.unpack_project(uploads, os.path.join(run, "paper"))
         os.makedirs(os.path.join(run, "workspace"), exist_ok=True)
@@ -377,10 +356,10 @@ def project(pid: str):
 
 @app.delete("/api/projects/{pid}")
 def project_delete_all(pid: str):
-    run = os.path.join(RUNS_DIR, pid)
+    run = os.path.join(config.RUNS_DIR, pid)
     if any(j.status == "running" and os.path.abspath(j.run_dir) == os.path.abspath(run) for j in JOBS.values()):
         raise HTTPException(409, "This paper is still being written. Cancel the run first.")
-    return {"moved_to": _ws(workspace.delete_project, RUNS_DIR, pid)}
+    return {"moved_to": _ws(workspace.delete_project, config.RUNS_DIR, pid)}
 
 
 @app.get("/api/projects/{pid}/file")
@@ -488,12 +467,13 @@ def latex_setup():
     return latex.status()
 
 
-def serve(port: int = PORT, open_browser: bool = True):
-    url = f"http://{HOST}:{port}"
-    print(f"\n  PaperScriptor is running at {url}\n  Outputs are saved in {RUNS_DIR}\n")
+def serve(port: int | None = None, open_browser: bool = True):
+    port = port or config.PORT
+    url = f"http://{config.HOST}:{port}"
+    print(f"\n  PaperScriptor is running at {url}\n  Outputs are saved in {config.RUNS_DIR}\n")
     if open_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
-    uvicorn.run(app, host=HOST, port=port, log_level="warning")
+    uvicorn.run(app, host=config.HOST, port=port, log_level="warning")
 
 
 if __name__ == "__main__":
