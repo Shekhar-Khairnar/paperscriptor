@@ -133,7 +133,9 @@
       ul.appendChild(li);
     });
   }
-  $("docInput").addEventListener("change", (e) => { addDocs(e.target.files); e.target.value = ""; });
+  $("docInput").addEventListener("change", (e) => {
+    routeFiles([...e.target.files].map(f => ({ file: f, path: f.name }))); e.target.value = "";
+  });
 
   // ---------- a whole folder: documents, figures and a captions file ----------
   const FIG_NAME = /([\w\-. ]+?\.(?:png|jpe?g|pdf))/i;
@@ -154,31 +156,59 @@
     const parts = low.split("/");
     return parts[parts.length - 1].startsWith("fig") || parts.slice(0, -1).some(p => /^(figs?|figures?|imgs?|images?|plots|charts)$/.test(p));
   }
-  $("folderBtn").addEventListener("click", () => { $("folderInput").value = ""; $("folderInput").click(); });
-  $("folderInput").addEventListener("change", async (e) => {
-    const all = [...e.target.files].filter(f => !/(^|\/)(\.|__MACOSX|__pycache__)/.test(f.webkitRelativePath || f.name));
-    const rel = (f) => (f.webkitRelativePath || f.name).split("/").slice(1).join("/") || f.name;
-    const capFiles = all.filter(f => /caption/i.test(f.name) && /\.(md|txt|markdown)$/i.test(f.name));
-    const figs = all.filter(f => !capFiles.includes(f) && isFigure(rel(f)));
+  // Sort any mix of files: documents are read, images become figures, a "caption" file fills in captions,
+  // reviewer comments and unsupported files are skipped with a note. items: [{file, path}]
+  async function routeFiles(items, { pdfAsFigure = false } = {}) {
+    const all = items.filter(x => !/(^|\/)(\.|__MACOSX|__pycache__)/.test(x.path));
+    const capFiles = all.filter(x => /caption/i.test(x.file.name) && /\.(md|txt|markdown)$/i.test(x.file.name));
+    const figs = all.filter(x => !capFiles.includes(x) && (isFigure(x.path) || (pdfAsFigure && /\.pdf$/i.test(x.file.name))));
     const skipped = [], docs = [];
-    for (const f of all) {
-      if (capFiles.includes(f) || figs.includes(f)) continue;
-      if (/review/i.test(f.name)) skipped.push(`${f.name} (reviewer comments: attach them in the editor chat)`);
-      else if (/\.(md|markdown|txt|tex|pdf|docx|csv|tsv|json)$/i.test(f.name)) docs.push(f);
-      else skipped.push(f.name);
+    for (const x of all) {
+      if (capFiles.includes(x) || figs.includes(x)) continue;
+      if (/review/i.test(x.file.name)) skipped.push(`${x.file.name} (reviewer comments: attach them in the editor chat)`);
+      else if (/\.(md|markdown|txt|tex|pdf|docx|csv|tsv|json)$/i.test(x.file.name)) docs.push(x.file);
+      else skipped.push(x.file.name);
     }
-    addDocs(docs);
+    if (docs.length) addDocs(docs);
     const before = figures.length;
-    addFiles(figs);
+    if (figs.length) addFiles(figs.map(x => x.file));
     let caps = {};
-    for (const cf of capFiles) { try { caps = { ...caps, ...parseCaptions(await cf.text()) }; } catch {} }
+    for (const cf of capFiles) { try { caps = { ...caps, ...parseCaptions(await cf.file.text()) }; } catch {} }
     figures.slice(before).forEach(f => { const c = caps[f.file.name.toLowerCase()]; if (c && !f.caption) f.caption = c; });
     renderFigures();
     const captioned = figures.slice(before).filter(f => f.caption).length;
+    const shown = skipped.slice(0, 5).join(", ") + (skipped.length > 5 ? ` and ${skipped.length - 5} more` : "");
     $("folderNote").textContent = `Added ${docs.length} document(s) and ${figs.length} figure(s)` +
-      (figs.length ? ` (${captioned} with captions)` : "") + (skipped.length ? `. Skipped: ${skipped.join(", ")}.` : ".");
+      (figs.length ? ` (${captioned} with captions)` : "") + (skipped.length ? `. Skipped: ${shown}.` : ".");
+  }
+
+  // Files and folders dropped from Explorer/Finder (folders are read recursively)
+  async function droppedItems(e) {
+    const entries = [...(e.dataTransfer.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+    if (!entries.length) return [...e.dataTransfer.files].map(f => ({ file: f, path: f.name }));
+    const out = [];
+    const readAll = (reader) => new Promise((resolve, reject) => {
+      const acc = [];
+      const next = () => reader.readEntries(batch => { if (!batch.length) resolve(acc); else { acc.push(...batch); next(); } }, reject);
+      next();
+    });
+    const walk = async (entry, prefix) => {
+      if (entry.isFile) {
+        const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+        out.push({ file, path: prefix + file.name });
+      } else if (entry.isDirectory) {
+        for (const child of await readAll(entry.createReader())) await walk(child, `${prefix}${entry.name}/`);
+      }
+    };
+    for (const entry of entries) await walk(entry, "");
+    return out;
+  }
+
+  $("folderBtn").addEventListener("click", () => { $("folderInput").value = ""; $("folderInput").click(); });
+  $("folderInput").addEventListener("change", (e) => {
+    routeFiles([...e.target.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name })));
   });
-  setupDrop($("docDrop"), addDocs);
+  setupDrop($("docDrop"), async (e) => routeFiles(await droppedItems(e)));
 
   // ---------- custom LaTeX template ----------
   let tplFiles = []; // {file, path}
@@ -230,13 +260,15 @@
       ul.appendChild(li);
     });
   }
-  $("figInput").addEventListener("change", (e) => { addFiles(e.target.files); e.target.value = ""; });
+  $("figInput").addEventListener("change", (e) => {
+    routeFiles([...e.target.files].map(f => ({ file: f, path: f.name })), { pdfAsFigure: true }); e.target.value = "";
+  });
   function setupDrop(el, onFiles) {
     ["dragenter", "dragover"].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); el.classList.add("over"); }));
     ["dragleave", "drop"].forEach(ev => el.addEventListener(ev, e => { e.preventDefault(); el.classList.remove("over"); }));
-    el.addEventListener("drop", e => onFiles(e.dataTransfer.files));
+    el.addEventListener("drop", e => onFiles(e));
   }
-  setupDrop($("drop"), addFiles);
+  setupDrop($("drop"), async (e) => routeFiles(await droppedItems(e), { pdfAsFigure: true }));
 
   // ---------- submit ----------
   function showError(msg) { $("formError").textContent = msg || ""; }
