@@ -119,4 +119,55 @@ assert c.get(f"/api/jobs/{jid}/files/..%2F..%2Fapp.py").status_code == 404
 reviews = json.load(open(os.path.join(s["run_dir"], "reviews.json")))
 assert [(r["version"], r["review"]["Overall"]) for r in reviews][:2] == [("draft", 5), ("v1", 6)], reviews
 assert "He2016DeepResidual" in bib and "Made Up" not in bib
+
+# Fact check of a long paper: checked in parts (one may fail), placeholders are never filled in
+filler = ("We report the measured results on the benchmark as logged by the authors. " * 100) + "\n"
+LONG = (r"\documentclass{sn-jnl}" "\n" r"\abstract{All results are on simulated data.}" "\n" r"\begin{document}" "\n"
+        r"\section{Introduction}" "\nOur method always works on every dataset.\n" + filler +
+        r"\section{Results}" "\n" + filler + r"\section{Declarations}" "\nData availability statement here.\n" + filler +
+        r"\end{document}" "\n")
+assert len(pipeline._check_parts(LONG)) == 3 and "".join(pipeline._check_parts(LONG)) == LONG
+assert pipeline._abstract(LONG) == "All results are on simulated data."
+
+class FakeChecker:
+    def __init__(self): self.users = []
+    def chat(self, model, system, user, temperature=0.7, **kw):
+        self.users.append(user)
+        if "PART 2 OF 3" in user:
+            raise llm.LLMError("cut off")
+        issues = [{"text": "Our method always works on every dataset.", "type": "absolute", "why": "x",
+                   "fix": "Our method works on the tested benchmark."},
+                  {"text": "Data availability statement here.", "type": "missing", "why": "x", "fix": "No data are available."}]
+        return "```json\n" + json.dumps({"issues": issues, "author_todo": ["Add data availability"]}) + "\n```"
+
+job = llm.Job("fc", tempfile.mkdtemp())
+checker = FakeChecker()
+out, rep = pipeline.check_claims(checker, job, "m", LONG, "idea", "log", [])
+assert len(checker.users) == 3 and all("PART" in u for u in checker.users)
+assert sum("All results are on simulated data." in u for u in checker.users) == 3  # part 1 has it; parts 2-3 get it as context
+assert "works on the tested benchmark" in out and "always works" not in out
+assert "Data availability statement here." in out and "No data are available" not in out   # placeholder kept
+assert rep["applied"] == 1 and rep["author_todo"] == ["Add data availability"] * 2, rep
+assert any("part 2/3 skipped" in line for line in job.logs), job.logs
+
+# A closing brace merged into the comment after it is restored; deliberate {% lines and balanced files are untouched
+broken = ("\\documentclass{sn-jnl}\n\\newcommand{\\note}[1]{%\n  \\textbf{#1}}\n%%% SUMMARY %%%\n"
+          "\\abstract{We report 88.1\\% F1 \\{sic\\}.%%% SUMMARY %%%\n\\begin{document}\nx\n\\end{document}")
+fixed = pipeline.close_commented_braces(broken)
+assert "\\abstract{We report 88.1\\% F1 \\{sic\\}.}%%% SUMMARY %%%" in fixed, fixed
+assert "\\newcommand{\\note}[1]{%\n" in fixed and pipeline._abstract(fixed) == "We report 88.1\\% F1 \\{sic\\}."
+assert pipeline.close_commented_braces(fixed) == fixed
+assert pipeline.extract_latex("```latex\n" + broken + "\n```").count("sic\\}.}%") == 1     # applied to model output
+
+# A model that spends its whole output allowance thinking is retried once, not five times
+cut = {"n": 0}
+def cut_post(url, headers=None, json=None, timeout=None):
+    cut["n"] += 1
+    return Resp(200, {"choices": [{"message": {"content": ""}, "finish_reason": "length"}], "usage": {"cost": 0.02}})
+llm.requests.post = cut_post
+try:
+    llm.LLM("sk-test", job).chat("m", "s", "u")
+    raise AssertionError("expected LLMError")
+except llm.LLMError as e:
+    assert "thinking" in str(e) and cut["n"] == 2, (e, cut)
 print("ALL PIPELINE TESTS PASSED")

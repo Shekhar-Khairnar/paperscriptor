@@ -343,6 +343,7 @@ def summary(run: str) -> dict:
         "versions": state["versions"],
         "messages": state["messages"],
         "cost": round(state.get("cost", 0.0), 4),
+        "tokens": state.get("tokens") or {"input": 0, "output": 0, "reasoning": 0},
         "compile": state.get("compile"),
         "pdf": os.path.exists(pdf),
         "pdf_mtime": os.path.getmtime(pdf) if os.path.exists(pdf) else 0,

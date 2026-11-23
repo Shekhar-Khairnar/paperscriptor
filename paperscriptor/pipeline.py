@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import json_repair
 
 from . import prompts, references
-from .llm import Cancelled, ImagesUnsupported, Job, LLM, LLMError
+from .llm import Cancelled, ImagesUnsupported, Job, LLM, LLMError, token_summary
 from .references import _make_key, _norm, make_bibtex
 
 
@@ -64,7 +64,38 @@ def extract_latex(text: str):
     tex = tex.strip()
     if "\\documentclass" not in tex or "\\end{document}" not in tex:
         return None
-    return tex + "\n"
+    return close_commented_braces(tex) + "\n"
+
+
+def _split_comment(line: str) -> tuple[str, str]:
+    m = re.search(r"(?<!\\)%", line)
+    return (line[:m.start()], line[m.start():]) if m else (line, "")
+
+
+def _brace_balance(code: str) -> int:
+    code = code.replace("\\\\", "").replace("\\{", "").replace("\\}", "")
+    return code.count("{") - code.count("}")
+
+
+def close_commented_braces(tex: str) -> str:
+    """Models sometimes merge a closing brace into the comment line after it, writing
+    '\\abstract{...text.%%% SUMMARY %%%' instead of '\\abstract{...text.}' + newline + '%%% SUMMARY %%%'.
+    The brace then stays open and the PDF can't be built. Close such braces, but only while the document as a
+    whole has more { than }; lines ending in '{%' (multi-line macro definitions) are left alone."""
+    lines = tex.split("\n")
+    missing = sum(_brace_balance(_split_comment(line)[0]) for line in lines)
+    for i, line in enumerate(lines):
+        if missing <= 0:
+            break
+        code, comment = _split_comment(line)
+        if not comment or not code.strip() or code.rstrip().endswith("{"):
+            continue
+        open_here = _brace_balance(code)
+        if open_here > 0:
+            k = min(open_here, missing)
+            lines[i] = code + "}" * k + comment
+            missing -= k
+    return "\n".join(lines)
 
 
 CITE_RE = re.compile(r"\\(cite[a-zA-Z]*\*?)(\[[^\]]*\])?(\[[^\]]*\])?\{([^}]*)\}")
@@ -307,10 +338,79 @@ def _replace_once(text: str, old: str, new: str) -> str | None:
     return text[:m.start()] + new + text[m.end():] if m else None
 
 
+CHECK_PART_CHARS = 12000  # reasoning models check sentence by sentence; a whole paper can use up their output allowance
+
+
+def _check_parts(tex: str) -> list[str]:
+    """Split the manuscript at \\section lines into parts of about CHECK_PART_CHARS. Joining them gives back tex."""
+    parts, cur = [], ""
+    for piece in re.split(r"(?m)^(?=\\section\*?\{)", tex):
+        if cur and len(cur) + len(piece) > CHECK_PART_CHARS:
+            parts.append(cur)
+            cur = piece
+        else:
+            cur += piece
+    return parts + [cur] if cur else parts
+
+
+def _abstract(tex: str) -> str:
+    m = re.search(r"\\begin\{abstract\}(.*?)\\end\{abstract\}", tex, re.S)
+    if m:
+        return m.group(1).strip()
+    i = tex.find("\\abstract{")  # Springer Nature: \abstract{...}
+    if i < 0:
+        return ""
+    depth, j = 0, i + len("\\abstract")
+    for k in range(j, len(tex)):
+        depth += {"{": 1, "}": -1}.get(tex[k], 0)
+        if depth == 0:
+            return tex[j + 1:k].strip()
+    return ""
+
+
+def _apply_fixes(part: str, issues: list) -> tuple[str, int]:
+    """Apply the checker's fixes to one part. Never touches author placeholders or the document frame.
+    Returns (new_part, number applied), or (part, -1) if the fixes would break the document."""
+    new, applied = part, 0
+    for issue in issues:
+        old, fix, kind = str(issue.get("text") or ""), str(issue.get("fix") or ""), str(issue.get("type") or "")
+        if len(old) < 12 or kind not in CHECK_TYPES or "\\documentclass" in old or "\\end{document}" in old:
+            continue
+        if PLACEHOLDER_RE.search(old) or AUTHOR_NOTE_RE.search(old):
+            continue  # only the authors can fill these in; they stay visible and go to TODO.md
+        cites = re.findall(r"\\cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{[^}]*\}", old)
+        missing = [c for c in cites if c not in fix]
+        if fix and missing:  # never lose a citation while rewording
+            end = len(fix.rstrip(" .")) if fix.rstrip().endswith(".") else len(fix)
+            fix = fix[:end] + "~" + "".join(missing) + fix[end:]
+        updated = _replace_once(new, old, fix)
+        if updated is not None:
+            new = updated
+            issue["applied"] = True
+            applied += 1
+    for frame in ("\\documentclass", "\\end{document}"):
+        if frame in part and frame not in new:
+            for issue in issues:
+                issue.pop("applied", None)
+            return part, -1
+    return new, applied
+
+
 def check_claims(llm, job, model, tex, idea, log_md, figures):
-    """Find and fix unsupported statements. Returns (new_tex, report dict)."""
+    """Find and fix unsupported statements, one part of the paper per call. Returns (new_tex, report dict)."""
     fig_ctx = "\n".join(f"- {f['name']}: {f['caption'] or '(no caption given)'}" for f in figures) or "(no figures)"
-    user = f"""--- AUTHORS' IDEA AND METHOD NOTES ---
+    parts = _check_parts(tex)
+    n = len(parts)
+    abstract = _abstract(tex) if n > 1 else ""
+    limit = 25 if n == 1 else 12
+
+    def prompt(i, part):
+        where = "MANUSCRIPT (LaTeX)" if n == 1 else f"MANUSCRIPT, PART {i + 1} OF {n} (LaTeX; check only this part)"
+        context = f"""--- ABSTRACT (context only; it already states the main caveats) ---
+{abstract}
+
+""" if abstract and "\\abstract{" not in part and "\\begin{abstract}" not in part else ""
+        return f"""--- AUTHORS' IDEA AND METHOD NOTES ---
 {idea}
 
 --- AUTHORS' EXPERIMENTAL LOG (the only source of results) ---
@@ -319,16 +419,17 @@ def check_claims(llm, job, model, tex, idea, log_md, figures):
 --- FIGURES THE AUTHORS PROVIDED (file: caption) ---
 {fig_ctx}
 
---- MANUSCRIPT (LaTeX) ---
-{tex}
+{context}--- {where} ---
+{part}
 
-TASK: Find up to 25 statements in the manuscript with one of these problems:
-- "number": a number that is not in the materials and cannot be derived from them.
+TASK: Find up to {limit} statements in the {"manuscript" if n == 1 else "part above"} with one of these problems:
+- "number": a number about this work that is not in the materials and cannot be derived from them. Numbers in a
+  sentence that cites another paper come from that paper: never change them, list them in author_todo to verify.
 - "figure": a caption or sentence describing figure content not stated in the authors' caption (e.g. arrows, dashed lines, colours, annotations).
 - "overreach": a conclusion broader than the comparisons actually run (e.g. about models or settings that were not tested).
 - "mechanism": an explanation of why something happened stated as an established finding, or called a correlation without one being computed.
 - "absolute": a categorical claim ("cannot", "always", "proves") that is not strictly true.
-- "repetition": the same caveat repeated in many places (keep the first, shorten the later ones).
+- "repetition": the same caveat repeated in many places (keep the first and the limitations paragraph, shorten the others).
 - "missing": the paper says something exists (a file, code, dataset, experiment, setting) that is not in the materials.
 
 Return ONLY a JSON object:
@@ -337,35 +438,43 @@ Return ONLY a JSON object:
   "fix": "replacement LaTeX that is hedged or corrected; keep every \\\\cite{{...}} and \\\\ref{{...}} from the original; empty string to delete"}}],
  "author_todo": ["things only the authors can provide or decide, e.g. missing settings, files to add, statements to verify"]}}
 Rules: "text" must match the LaTeX exactly. Do not touch the preamble, correct numbers, tables of correct results or the
-bibliography. If there are no problems, return empty lists."""
+bibliography. Hedge at most once per sentence; prefer narrowing a claim to what was tested over adding "may".
+Leave placeholders untouched (lines ending in "here." and [AUTHOR: ...] notes) and do not repeat them in author_todo;
+they are collected separately. If there are no problems, return empty lists."""
+
+    def check(i):
+        return extract_json(llm.chat(model, CLAIM_CHECK_SYSTEM, prompt(i, parts[i]), temperature=0.1)) or {}
+
     report = {"issues": [], "applied": 0, "author_todo": []}
-    try:
-        data = extract_json(llm.chat(model, CLAIM_CHECK_SYSTEM, user, temperature=0.1)) or {}
-    except LLMError as e:
-        job.log(f"  ! Fact check skipped: {e}")
+    if n > 1:
+        job.log(f"  Checking the paper in {n} parts.")
+    results, failed = [None] * n, 0
+    with ThreadPoolExecutor(max_workers=min(4, n)) as ex:
+        futures = {ex.submit(check, i): i for i in range(n)}
+        for fut in as_completed(futures):
+            i = futures[fut]
+            try:
+                results[i] = fut.result()
+            except Cancelled:
+                raise
+            except LLMError as e:
+                failed += 1
+                job.log(f"  ! Fact check{f' of part {i + 1}/{n}' if n > 1 else ''} skipped: {e}")
+    if failed == n:
         return tex, report
-    issues = [i for i in (data.get("issues") or []) if isinstance(i, dict)]
-    todo = [str(t).strip() for t in (data.get("author_todo") or []) if str(t).strip()]
-    new_tex = tex
-    for issue in issues[:25]:
-        old, fix, kind = str(issue.get("text") or ""), str(issue.get("fix") or ""), str(issue.get("type") or "")
-        if len(old) < 12 or kind not in CHECK_TYPES or "\\documentclass" in old or "\\end{document}" in old:
-            continue
-        cites = re.findall(r"\\cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{[^}]*\}", old)
-        missing = [c for c in cites if c not in fix]
-        if fix and missing:  # never lose a citation while rewording
-            end = len(fix.rstrip(" .")) if fix.rstrip().endswith(".") else len(fix)
-            fix = fix[:end] + "~" + "".join(missing) + fix[end:]
-        updated = _replace_once(new_tex, old, fix)
-        if updated is not None:
-            new_tex = updated
-            issue["applied"] = True
-            report["applied"] += 1
-    if "\\documentclass" not in new_tex or "\\end{document}" not in new_tex:
-        job.log("  ! Fact check changes would break the document; keeping the previous version.")
-        return tex, report
-    report.update(issues=issues, author_todo=todo)
-    return new_tex, report
+    new_parts = []
+    for part, data in zip(parts, results):
+        data = data if isinstance(data, dict) else {}
+        issues = [x for x in (data.get("issues") or []) if isinstance(x, dict)][:limit]
+        new_part, applied = _apply_fixes(part, issues)
+        if applied < 0:
+            job.log("  ! Fact check changes would break the document; keeping that part unchanged.")
+            applied = 0
+        new_parts.append(new_part)
+        report["issues"] += issues
+        report["applied"] += applied
+        report["author_todo"] += [str(t).strip() for t in (data.get("author_todo") or []) if str(t).strip()]
+    return "".join(new_parts), report
 
 
 def prune_bib(bib: str, tex: str) -> tuple[str, int]:
@@ -420,7 +529,8 @@ def run_pipeline(job: Job, cfg: dict):
         _run(job, cfg)
         job.status = "done"
         job.step = "done"
-        job.log(f"Finished. Total OpenRouter cost: ${job.cost:.4f}. Output folder: {job.run_dir}")
+        job.log(f"Finished. Total OpenRouter cost: ${job.cost:.4f} for {token_summary(job.tokens)}. "
+                f"Output folder: {job.run_dir}")
     except Cancelled:
         job.status = "cancelled"
         job.log(f"Cancelled. OpenRouter cost so far: ${job.cost:.4f}.")
@@ -436,7 +546,7 @@ def run_pipeline(job: Job, cfg: dict):
 
 def _run(job: Job, cfg: dict):
     run = job.run_dir
-    llm = LLM(cfg["api_key"], job)
+    llm = LLM(cfg["api_key"], job, cfg.get("reasoning", ""))
     writer, searcher = cfg["writer_model"], cfg["search_model"]
     cutoff = cfg["cutoff"]
     idea, log_md = cfg["idea"], cfg["experimental_log"]

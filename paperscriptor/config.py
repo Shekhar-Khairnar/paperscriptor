@@ -44,11 +44,13 @@ HOST, PORT = "127.0.0.1", int(os.environ.get("PORT", "8000"))
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/")  # 127.0.0.1: "localhost" can stall on Windows
 OLLAMA_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "32768"))  # largest context window to request
 
-DEFAULT_WRITER = "thinkingmachines/inkling-2-small"
+DEFAULT_WRITER = "openai/gpt-6-luna"  # cheap, follows instructions, and its reasoning effort can be set
 DEFAULT_SEARCH = "thinkingmachines/inkling-2-small"  # accurate paper titles, cheap; openai/gpt-oss-20b is cheaper still
+DEFAULT_REASONING = ""  # "" lets each model decide; otherwise none, minimal, low, medium, high or xhigh
 # Short list shown in the model boxes (any OpenRouter model id can still be typed by hand)
 RECOMMENDED_MODELS = [
-    ("thinkingmachines/inkling-2-small", "Default · cheap, good quality"),
+    ("openai/gpt-6-luna", "Default writer · cheap, adjustable reasoning"),
+    ("thinkingmachines/inkling-2-small", "Default paper search · knows titles well"),
     ("thinkingmachines/inkling-2-mini", "Cheaper Inkling"),
     ("openai/gpt-oss-120b", "Very cheap"),
     ("openai/gpt-oss-20b", "Very cheap"),

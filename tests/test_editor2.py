@@ -29,8 +29,9 @@ read = lambda p: c.get(f"/api/projects/{pid}/file", params={"path": p}).json()["
 # ---- mocks: model replies, streamed in small pieces ----
 replies, calls = [], []
 def fake_stream(self, model, system, user, temperature=0.7, history=(), on_text=None):
-    calls.append({"user": user, "history": list(history)})
+    calls.append({"user": user, "history": list(history), "reasoning": self.reasoning})
     self.job.add_cost(0.002)
+    self.job.add_usage({"prompt_tokens": 100, "completion_tokens": 20, "completion_tokens_details": {"reasoning_tokens": 5}})
     text = replies.pop(0)
     if on_text:
         for i in range(0, len(text), 40):
@@ -119,12 +120,15 @@ print("new bib file ok")
 
 # ---- 3. attachments go into the prompt and onto the message ----
 replies.append("Your results file says 12.3%, which matches the paper.")
-d = c.post(f"/api/projects/{pid}/chat", json={"message": "Check the numbers against my results",
+d = c.post(f"/api/projects/{pid}/chat", json={"message": "Check the numbers against my results", "reasoning": "low",
            "attachments": [{"name": "results.csv", "text": "model,score\nours,12.3\n"}, {"name": "empty.txt", "text": "  "}]}).json()
 assert "=== ATTACHED: results.csv ===\nmodel,score\nours,12.3" in calls[-1]["user"]
 assert "empty.txt" not in calls[-1]["user"]
 user = d["messages"][-2]
 assert user["attachments"] == ["results.csv"], user
+assert calls[-1]["reasoning"] == "low" and calls[-2]["reasoning"] == ""          # effort reaches the model client
+assert d["messages"][-1]["tokens"] == {"input": 100, "output": 20, "reasoning": 5}, d["messages"][-1]
+assert d["tokens"]["input"] >= 200 and d["tokens"]["reasoning"] >= 10, d["tokens"]  # project totals add up
 print("attachments ok")
 
 # ---- 4. live status while the model is writing ----

@@ -16,6 +16,50 @@ from . import config
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 LOCAL_PREFIX = "ollama/"   # "ollama/qwen3:14b" runs on the local Ollama server instead of OpenRouter
 THINK_RE = re.compile(r"<think>.*?</think>\s*", re.S)
+MODELS_URL = "https://openrouter.ai/api/v1/models"
+
+# How long a model thinks before answering (OpenRouter's reasoning.effort). "" lets the model decide.
+EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
+
+
+def normalize_effort(value) -> str:
+    v = str(value or "").strip().lower()
+    v = {"off": "none", "default": "", "auto": ""}.get(v, v)
+    return v if v in EFFORTS else ""
+
+
+def token_summary(tokens: dict) -> str:
+    """'12,345 input and 6,789 output tokens (2,000 of them reasoning)'."""
+    t = tokens or {}
+    text = f"{int(t.get('input') or 0):,} input and {int(t.get('output') or 0):,} output tokens"
+    return text + (f" ({int(t['reasoning']):,} of them reasoning)" if t.get("reasoning") else "")
+
+
+_prices = {"at": 0.0, "data": {}}
+_prices_lock = threading.Lock()
+
+
+def openrouter_prices(max_age: float = 6 * 3600) -> dict:
+    """{model id: {"input": $ per 1M tokens, "output": $ per 1M tokens}} from OpenRouter's public model list.
+    Cached for a few hours; empty if OpenRouter can't be reached."""
+    with _prices_lock:
+        if _prices["data"] and time.time() - _prices["at"] < max_age:
+            return _prices["data"]
+    try:
+        rows = requests.get(MODELS_URL, timeout=8).json().get("data") or []
+    except Exception:
+        return _prices["data"]
+    data = {}
+    for m in rows:
+        try:
+            p = m.get("pricing") or {}
+            data[m["id"]] = {"input": round(float(p.get("prompt") or 0) * 1e6, 4),
+                             "output": round(float(p.get("completion") or 0) * 1e6, 4)}
+        except (KeyError, TypeError, ValueError):
+            continue
+    with _prices_lock:
+        _prices.update(at=time.time(), data=data)
+    return data
 
 
 def is_local(model: str) -> bool:
@@ -57,6 +101,7 @@ class Job:
         self.logs: list[str] = []
         self.error = None
         self.cost = 0.0
+        self.tokens = {"input": 0, "output": 0, "reasoning": 0}  # reasoning tokens are part of output
         self.files: dict[str, str] = {}  # download name -> absolute path
         self.cancel_requested = False
         self.started_at = time.time()
@@ -74,6 +119,16 @@ class Job:
         with self._lock:
             self.cost += float(c or 0)
 
+    def add_usage(self, usage):
+        """Record one response's usage block: cost and input / output / reasoning tokens."""
+        usage = usage or {}
+        details = usage.get("completion_tokens_details") or {}
+        with self._lock:
+            self.cost += float(usage.get("cost") or 0)
+            self.tokens["input"] += int(usage.get("prompt_tokens") or 0)
+            self.tokens["output"] += int(usage.get("completion_tokens") or 0)
+            self.tokens["reasoning"] += int(details.get("reasoning_tokens") or 0)
+
     def check(self):
         if self.cancel_requested:
             raise Cancelled()
@@ -88,6 +143,7 @@ class Job:
                 "log_count": len(self.logs),
                 "error": self.error,
                 "cost": round(self.cost, 4),
+                "tokens": dict(self.tokens),
                 "files": sorted(self.files.keys()),
                 "run_dir": self.run_dir,
                 "project": os.path.basename(self.run_dir),
@@ -106,8 +162,9 @@ def _data_url(path: str) -> str:
 
 
 class LLM:
-    def __init__(self, api_key: str, job: Job):
+    def __init__(self, api_key: str, job: Job, reasoning: str = ""):
         self.api_key = api_key
+        self.reasoning = normalize_effort(reasoning)  # ignored by local models
         self.job = job
 
     def chat(self, model, system, user, images=(), temperature=0.7, web=False, history=()) -> str:
@@ -129,6 +186,8 @@ class LLM:
             "max_tokens": 32000,
             "usage": {"include": True},
         }
+        if self.reasoning:
+            body["reasoning"] = {"effort": self.reasoning}
         if web:
             body["plugins"] = [{"id": "web", "max_results": 3}]  # 3 results = about $0.012 per search
         headers = {
@@ -139,6 +198,7 @@ class LLM:
         }
 
         last_err = "unknown error"
+        cut_off = 0  # answers lost because the model spent its whole output allowance thinking
         for attempt in range(5):
             self.job.check()
             try:
@@ -153,11 +213,15 @@ class LLM:
                 data = r.json()
                 choice = (data.get("choices") or [{}])[0]
                 text = (choice.get("message") or {}).get("content") or ""
-                self.job.add_cost((data.get("usage") or {}).get("cost"))
+                self.job.add_usage(data.get("usage"))
                 if choice.get("finish_reason") == "length":
                     self.job.log("  ! The model hit its output limit; the response may be cut off.")
                 if text.strip():
                     return text
+                if choice.get("finish_reason") == "length":
+                    cut_off += 1
+                    if cut_off >= 2:  # each such attempt costs the full output allowance; don't pay for five
+                        raise LLMError("the model used its whole output allowance thinking and gave no answer (twice)")
                 last_err = "empty response from model"
                 time.sleep(2)
                 continue
@@ -169,6 +233,11 @@ class LLM:
                 raise LLMError("OpenRouter says the account is out of credits (402).")
             if images and ("image" in low or "modalit" in low):
                 raise ImagesUnsupported(msg)
+            if r.status_code == 400 and "reasoning" in body and "reason" in low:
+                body.pop("reasoning")  # this model doesn't take a reasoning effort; use its default
+                self.job.log(f"  ! '{model}' does not accept a reasoning effort; using its default.")
+                last_err = msg
+                continue
             if r.status_code in (400, 404) and "max_tokens" in body:
                 # Some models reject max_tokens=32000; let OpenRouter pick the default.
                 body.pop("max_tokens")
@@ -191,6 +260,8 @@ class LLM:
         ]
         body = {"model": model, "messages": messages, "temperature": temperature, "max_tokens": 32000,
                 "usage": {"include": True}, "stream": True}
+        if self.reasoning:
+            body["reasoning"] = {"effort": self.reasoning}
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -229,7 +300,7 @@ class LLM:
                         err = chunk["error"]
                         raise LLMError(f"OpenRouter error: {err.get('message', err) if isinstance(err, dict) else err}")
                     if chunk.get("usage"):
-                        self.job.add_cost(chunk["usage"].get("cost"))
+                        self.job.add_usage(chunk["usage"])
                     choice = (chunk.get("choices") or [{}])[0]
                     delta = (choice.get("delta") or {}).get("content") or ""
                     if delta:
@@ -319,12 +390,16 @@ class LLM:
                             on_text(visible_text(text))
                         if chunk.get("done"):
                             reason = chunk.get("done_reason")
+                            self.job.add_usage({"prompt_tokens": chunk.get("prompt_eval_count"),
+                                                "completion_tokens": chunk.get("eval_count")})
                             break
                 else:
                     data = r.json()
                     if data.get("error"):
                         raise LLMError(f"Ollama error: {data['error']}")
                     text, reason = (data.get("message") or {}).get("content") or "", data.get("done_reason")
+                    self.job.add_usage({"prompt_tokens": data.get("prompt_eval_count"),
+                                        "completion_tokens": data.get("eval_count")})
             except requests.RequestException as e:
                 last_err = f"connection lost: {e}"
                 continue

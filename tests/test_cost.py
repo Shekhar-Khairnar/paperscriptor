@@ -59,5 +59,65 @@ class R:
 llm.requests.post = lambda url, headers=None, json=None, timeout=None: body.update(json) or R()
 llm.LLM("k", llm.Job("w", tempfile.mkdtemp())).chat("thinkingmachines/inkling-2-small", None, "find papers", web=True)
 assert body["plugins"] == [{"id": "web", "max_results": 3}], body
+assert "reasoning" not in body                                                           # default: the model decides
+
+# ---- reasoning effort reaches OpenRouter; token counts are kept ----
+assert config.DEFAULT_WRITER == "openai/gpt-6-luna" and config.RECOMMENDED_MODELS[0][0] == config.DEFAULT_WRITER
+assert [llm.normalize_effort(x) for x in ("off", "LOW", "default", "", "silly", "xhigh")] == ["none", "low", "", "", "", "xhigh"]
+class U:
+    status_code = 200
+    def json(self): return {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
+                            "usage": {"cost": 0.003, "prompt_tokens": 1200, "completion_tokens": 300,
+                                      "completion_tokens_details": {"reasoning_tokens": 250}}}
+body.clear()
+llm.requests.post = lambda url, headers=None, json=None, timeout=None: body.update(json) or U()
+uj = llm.Job("u", tempfile.mkdtemp())
+llm.LLM("k", uj, "high").chat("openai/gpt-6-luna", None, "write")
+assert body["reasoning"] == {"effort": "high"}, body
+llm.LLM("k", uj, "none").chat("openai/gpt-6-luna", None, "write")
+assert body["reasoning"] == {"effort": "none"}
+assert uj.tokens == {"input": 2400, "output": 600, "reasoning": 500} and abs(uj.cost - 0.006) < 1e-9, (uj.tokens, uj.cost)
+assert uj.snapshot()["tokens"] == uj.tokens
+assert llm.token_summary(uj.tokens) == "2,400 input and 600 output tokens (500 of them reasoning)"
+
+# a model that refuses the reasoning field is retried once without it
+seen_bodies = []
+class Refuse:
+    status_code = 400
+    text = '{"error": {"message": "reasoning is not supported for this model"}}'
+    def json(self): return {"error": {"message": "reasoning is not supported for this model"}}
+def picky(url, headers=None, json=None, timeout=None):
+    seen_bodies.append(dict(json))
+    return Refuse() if "reasoning" in json else U()
+llm.requests.post = picky
+assert llm.LLM("k", uj, "low").chat("some/model", None, "write") == "ok"
+assert "reasoning" in seen_bodies[0] and "reasoning" not in seen_bodies[1], seen_bodies
+
+job, cfg = server.prepare_run(api_key="k", materials={"idea": "x"}, reasoning="Low")
+assert cfg["reasoning"] == "low" and cfg["writer_model"] == "openai/gpt-6-luna", cfg
+assert "reasoning effort: low" in job.logs[0], job.logs
+pipeline.run_pipeline = lambda job, cfg: seen.update(cfg)
+r = c.post("/api/jobs", data={"api_key": "k", "reasoning": "medium"},
+           files=[("materials", ("m.json", json.dumps({"idea": "x"}), "application/json"))])
+assert r.status_code == 200, r.text
+time.sleep(0.2)
+assert seen["reasoning"] == "medium", seen
+pipeline.run_pipeline = pipeline_run
+assert "none" in c.get("/api/config").json()["efforts"]
+
+# ---- prices per 1M tokens come from OpenRouter's public list (cached) ----
+class Models:
+    def json(self): return {"data": [{"id": "openai/gpt-6-luna", "pricing": {"prompt": "0.0000001", "completion": "0.0000005"}},
+                                     {"id": "broken/model", "pricing": {"prompt": "n/a"}}]}
+hits = []
+llm.requests.get = lambda url, timeout=None: hits.append(url) or Models()
+llm._prices.update(at=0.0, data={})
+p = c.get("/api/prices").json()["prices"]
+assert p == {"openai/gpt-6-luna": {"input": 0.1, "output": 0.5}}, p
+c.get("/api/prices")
+assert len(hits) == 1                                                                    # cached
+llm._prices.update(at=0.0, data={})
+llm.requests.get = lambda url, timeout=None: (_ for _ in ()).throw(OSError("offline"))
+assert c.get("/api/prices").json() == {"prices": {}}                                     # offline: no prices, no error
 
 print("ALL COST TESTS PASSED")

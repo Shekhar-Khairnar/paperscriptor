@@ -62,6 +62,8 @@ def get_config():
         "templates": [{"id": d, "label": TEMPLATE_LABELS.get(d, d)} for d in ids],
         "default_writer": DEFAULT_WRITER,
         "default_search": DEFAULT_SEARCH,
+        "default_reasoning": config.DEFAULT_REASONING,
+        "efforts": list(llm.EFFORTS),
         "default_cutoff": pipeline.default_cutoff(),
         "env_key": bool(os.environ.get("OPENROUTER_API_KEY")),
         "runs_dir": config.RUNS_DIR,
@@ -77,6 +79,12 @@ def local_models() -> list[str]:
         return sorted(llm.LOCAL_PREFIX + m["name"] for m in tags if m.get("name"))
     except Exception:
         return []
+
+
+@app.get("/api/prices")
+def prices():
+    """Price per 1M input and output tokens for every OpenRouter model (from OpenRouter's public list, cached)."""
+    return {"prices": llm.openrouter_prices()}
 
 
 @app.get("/api/models")
@@ -115,7 +123,7 @@ class RunError(ValueError):
 
 def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT_SEARCH, template="iclr2025",
                 template_rules="", cutoff="", use_literature=True, use_web=False, refine_rounds=1,
-                max_searches=20, budget=1.0,
+                max_searches=20, budget=1.0, reasoning="",
                 s2_api_key="", openalex_api_key="", materials=None, figures=(), template_uploads=()):
     """Validate the inputs, create the run folder and return (job, cfg). Shared by the web app and the CLI.
     materials: {idea, experimental_log, documents: [{name, role, text}]}
@@ -182,6 +190,7 @@ def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT
         "api_key": api_key,
         "writer_model": (writer_model or "").strip() or DEFAULT_WRITER,
         "search_model": (search_model or "").strip() or DEFAULT_SEARCH,
+        "reasoning": llm.normalize_effort(reasoning),
         "template_dir": template_dir,
         "idea": idea,
         "experimental_log": experimental_log,
@@ -204,7 +213,8 @@ def prepare_run(*, api_key="", writer_model=DEFAULT_WRITER, search_model=DEFAULT
     JOBS[job_id] = job
     n_docs = len(mat.get("documents") or [])
     job.log(f"Run started. Template: {template_label}, writer: {cfg['writer_model']}, "
-            f"search: {cfg['search_model']}, cutoff: {cfg['cutoff']}"
+            f"search: {cfg['search_model']}, reasoning effort: {cfg['reasoning'] or 'model default'}, "
+            f"cutoff: {cfg['cutoff']}"
             f"{f', {n_docs} document(s)' if n_docs else ''}.")
     return job, cfg
 
@@ -222,6 +232,7 @@ async def create_job(
     refine_rounds: int = Form(1),
     max_searches: int = Form(20),
     budget: float = Form(1.0),
+    reasoning: str = Form(""),
     s2_api_key: str = Form(""),
     openalex_api_key: str = Form(""),
     captions: str = Form("[]"),
@@ -251,7 +262,7 @@ async def create_job(
         job, cfg = prepare_run(api_key=api_key, writer_model=writer_model, search_model=search_model, template=template,
                                template_rules=template_rules, cutoff=cutoff, use_literature=use_literature,
                                use_web=use_web, refine_rounds=refine_rounds, max_searches=max_searches,
-                               budget=budget, s2_api_key=s2_api_key,
+                               budget=budget, reasoning=reasoning, s2_api_key=s2_api_key,
                                openalex_api_key=openalex_api_key, materials=mat, figures=figs,
                                template_uploads=uploads)
     except RunError as e:
@@ -315,6 +326,7 @@ class ChatBody(BaseModel):
     selection: str = ""
     open_path: str = ""
     model: str = ""
+    reasoning: str = ""
     api_key: str = ""
     attachments: list[Attachment] = []
 
@@ -416,7 +428,8 @@ def project_main(pid: str, body: PathBody):
 def project_chat(pid: str, body: ChatBody):
     key = body.api_key.strip() or os.environ.get("OPENROUTER_API_KEY", "")
     return _ws(workspace.chat, _run(pid), body.message, body.selection, body.open_path,
-               body.model.strip() or DEFAULT_WRITER, key, [a.model_dump() for a in body.attachments])
+               body.model.strip() or DEFAULT_WRITER, key, [a.model_dump() for a in body.attachments],
+               body.reasoning)
 
 
 @app.get("/api/projects/{pid}/chat/status")

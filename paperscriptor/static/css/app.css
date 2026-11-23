@@ -317,6 +317,10 @@ a.icon-btn { display: inline-flex; align-items: center; justify-content: center;
 .composer-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: .78rem; color: var(--muted); }
 .composer-meta select { min-height: 30px; padding: 2px 10px; font-size: .78rem; border-radius: 999px; flex: 1; min-width: 0; width: auto; }
 .composer-meta input { min-height: 30px; padding: 2px 10px; font-size: .78rem; border-radius: 999px; flex: 1; min-width: 0; }
+.composer-meta select.effort { flex: 0 1 auto; max-width: 9.5rem; }
+.hint.price { color: var(--fg); font-variant-numeric: tabular-nums; }
+.hint.price:empty { display: none; }
+.meta b { font-variant-numeric: tabular-nums; }
 /* PDF */
 .seg { display: inline-flex; background: var(--field); border-radius: 999px; padding: 3px; gap: 2px; flex: none; }
 .seg button { min-height: 32px; border: none; background: transparent; padding: 4px 14px; font-size: .84rem; }

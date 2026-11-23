@@ -281,7 +281,7 @@ def _history(state: dict) -> list[dict]:
 
 
 def chat(run: str, message: str, selection: str, open_path: str, model: str, api_key: str,
-         attachments: list | None = None) -> dict:
+         attachments: list | None = None, reasoning: str = "") -> dict:
     pid = os.path.basename(run)
     message = (message or "").strip()
     if not message:
@@ -296,7 +296,8 @@ def chat(run: str, message: str, selection: str, open_path: str, model: str, api
         job.stage, job.partial = "Thinking…", ""
         _busy[pid] = job
     try:
-        return _chat(run, job, message, (selection or "").strip(), open_path, model, api_key, attachments or [])
+        return _chat(run, job, message, (selection or "").strip(), open_path, model, api_key, attachments or [],
+                     reasoning)
     finally:
         with _busy_guard:
             _busy.pop(pid, None)
@@ -321,7 +322,8 @@ def chat_status(run: str) -> dict:
         hints = [l.strip().strip("`*#:").strip() for l in text[:text.rfind("<<<<<<<")].splitlines() if l.strip()]
         path = next((h for h in reversed(hints) if PATH_LINE_RE.fullmatch(h)), None)
         stage = f"Editing {path}…" if path else "Editing…"
-    return {"busy": True, "stage": stage, "reply": (_reply_text(text) if text else "")[:4000], "cost": round(job.cost, 5)}
+    return {"busy": True, "stage": stage, "reply": (_reply_text(text) if text else "")[:4000], "cost": round(job.cost, 5),
+            "tokens": dict(job.tokens)}
 
 
 def _target_bib(state: dict, files: dict) -> str:
@@ -408,7 +410,7 @@ def _find_papers(run: str, state: dict, files: dict, wanted: list, job) -> dict:
     return {"bib": bib, "bib_text": text, "added": added, "already": already, "missing": missing}
 
 
-def _chat(run, job, message, selection, open_path, model, api_key, attachments) -> dict:
+def _chat(run, job, message, selection, open_path, model, api_key, attachments, reasoning="") -> dict:
     state = load_state(run)
     old = _snapshot(run)
     try:
@@ -441,7 +443,7 @@ def _chat(run, job, message, selection, open_path, model, api_key, attachments) 
         prompt += f"--- THE AUTHOR HAS SELECTED THIS PASSAGE{f' IN {open_path}' if open_path else ''} ---\n{selection[:4000]}\n\n"
     prompt += f"--- AUTHOR'S REQUEST ---\n{message}\n"
 
-    client = llm.LLM(api_key, job)
+    client = llm.LLM(api_key, job, reasoning)
 
     def ask(user_text, hist, stage="Writing…", temperature=0.3):
         job.stage, job.partial = stage, ""
@@ -532,7 +534,11 @@ def _chat(run, job, message, selection, open_path, model, api_key, attachments) 
     except llm.LLMError as e:
         reply_msg.update(text=str(e), error=True)
     reply_msg["cost"] = round(job.cost, 5)
+    reply_msg["tokens"] = dict(job.tokens)
     state["cost"] = state.get("cost", 0.0) + job.cost
+    totals = state.setdefault("tokens", {"input": 0, "output": 0, "reasoning": 0})
+    for k, v in job.tokens.items():
+        totals[k] = totals.get(k, 0) + v
     state["messages"] += [user_msg, reply_msg]
     save_state(run, state)
     return summary(run)

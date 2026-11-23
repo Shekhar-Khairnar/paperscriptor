@@ -16,7 +16,7 @@ Built on Google Research's [PaperOrchestra](https://github.com/google-research/p
 
 | | |
 |---|---|
-| ✍️ **Writes the whole paper** | Outline → literature review → sections → AI review and revision, in your venue's LaTeX template. |
+| ✍️ **Writes the whole paper** | Outline → literature review → sections → AI review and revision → fact check, in your venue's LaTeX template. |
 | 🔎 **Real references only** | Every citation is checked on Semantic Scholar / OpenAlex. Papers that don't exist never reach your `.bib`. |
 | 💬 **Edit by chatting** | "Shorten the abstract", "address reviewer 2", "add citations here": it edits several files at once and shows the diff. |
 | 📄 **A full LaTeX editor** | File tree, code editor, live PDF, double-click the PDF to jump to the source, versions and undo. |
@@ -58,6 +58,10 @@ have installed.
   come from any file with "caption" in its name. Or add files one by one: Markdown, PDF, Word, CSV, JSON, LaTeX.
 - Templates: ICLR 2025, CVPR 2025, Nature (Springer Nature), or **your own journal kit** (.zip / folder).
 - Tables use only your numbers. A revision is kept only if the AI reviewer's score doesn't drop.
+- Pick the **reasoning effort** (off, low, medium, high). Each model shows its price per 1M input and output tokens,
+  and the run shows the tokens it used, so you can see what the model and the effort cost.
+- A **fact check** compares every claim with your notes and tones down what they don't support (overreaching
+  conclusions, invented figure details, repeated caveats). What only you can provide goes into `TODO.md`.
 
 **Edit** (any LaTeX project, including Overleaf downloads)
 
@@ -72,6 +76,7 @@ have installed.
 ```bash
 paperscriptor write my_study_folder/ --template nature
 paperscriptor write --idea notes.md --log results.csv --template iclr2025
+paperscriptor write my_study_folder/ --reasoning low      # think less, pay less
 paperscriptor import my-overleaf-project.zip
 paperscriptor ask last "Shorten the abstract to 150 words" --diff
 paperscriptor ask last "Add citations for efficient attention" --file sections/intro.tex
@@ -90,17 +95,21 @@ paperscriptor ask last "Fix the grammar" --model ollama/qwen3:14b   # fully loca
 2. **Literature agent:** suggests papers, verifies each one, builds `references.bib`, writes the Intro and Related Work.
 3. **Section agent:** writes method, experiments and tables from your results.
 4. **Review and refine:** an AI reviewer scores the draft; the writer revises; worse revisions are discarded.
-5. **Package:** strips unknown citations, compiles the PDF, zips the project.
+5. **Fact check:** compares the paper with your notes in parts, tones down unsupported claims, writes `TODO.md`.
+6. **Package:** strips unknown citations, compiles the PDF, zips the project.
 
 In the editor, the model replies with small search-and-replace edits per file. PaperScriptor applies them, rejects
 changes that would break the document, removes invented citation keys, saves a version and recompiles.
 
 ## Cost
 
-| | `inkling-2-small` (default) | `gemini-3.1-pro` | `ollama/...` (local) |
+| | `gpt-6-luna` (default writer) | `claude-sonnet-5.5` | `ollama/...` (local) |
 |---|---|---|---|
-| Full paper | ~$0.05–0.15 | ~$1.00–2.00 | free |
-| Chat edit | ~$0.0005 | ~$0.01 | free |
+| Full paper | ~$0.08 | ~$1.00–1.50 | free |
+| Chat edit | ~$0.001 | ~$0.02 | free |
+
+Paper search uses `inkling-2-small` by default. Higher reasoning effort means more output tokens and a higher cost;
+`--reasoning none` is the cheapest.
 
 Built-in limits keep costs predictable: at most **20 paper searches** (the most important first), web search
 **off** by default (turn it on for newer papers, about $0.25 more), and a **$1 spending limit** per paper that

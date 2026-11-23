@@ -26,7 +26,12 @@
     const cfg = await fetch("/api/config").then(r => r.json());
     $("template").innerHTML = cfg.templates.map(t => `<option value="${t.id}">${t.label}</option>`).join("")
       + `<option value="__custom__">My own LaTeX template…</option>`;
+    if (!store.get("writer_v2")) {  // the default writer changed; keep a model the user picked themselves
+      for (const k of ["writer_model", "editor_model"]) if (OLD_WRITERS.includes(store.get(k))) store.del(k);
+      store.set("writer_v2", "1");
+    }
     $("writer_model").value = store.get("writer_model") || cfg.default_writer;
+    $("reasoning").value = store.get("reasoning") ?? (cfg.default_reasoning || "");
     if (OLD_DEFAULTS.includes(store.get("search_model"))) store.del("search_model");  // forget an old default
     $("search_model").value = store.get("search_model") || cfg.default_search;
     $("cutoff").value = store.get("cutoff") || cfg.default_cutoff;
@@ -46,10 +51,12 @@
     fetch("/api/models").then(r => r.json()).then(d => {
       modelChoices = d.models;
       ["writer_model", "search_model", "edModel"].forEach(modelPicker);
+      showPrices();
       if (d.local && d.local.length) {
         $("localHint").textContent = `Local models found: ${d.local.slice(0, 3).join(", ")}${d.local.length > 3 ? "…" : ""}`;
       }
     }).catch(() => {});
+    fetch("/api/prices").then(r => r.json()).then(d => { prices = d.prices || {}; showPrices(); }).catch(() => {});
     defaultModel = cfg.default_writer;
     const last = (location.hash.match(/run=(\w+)/) || [])[1] || store.get("job_id");
     if (last) resume(last);
@@ -290,12 +297,14 @@
     if ($("remember").checked && key) store.set("api_key", key);
     store.set("writer_model", $("writer_model").value.trim());
     store.set("search_model", $("search_model").value.trim());
+    store.set("reasoning", $("reasoning").value);
     store.set("cutoff", $("cutoff").value);
 
     const fd = new FormData();
     fd.append("api_key", key);
     fd.append("writer_model", $("writer_model").value.trim());
     fd.append("search_model", $("search_model").value.trim());
+    fd.append("reasoning", $("reasoning").value);
     fd.append("template", $("template").value);
     fd.append("template_rules", custom ? $("template_rules").value : "");
     const materials = {
@@ -376,6 +385,8 @@
     finishedAt = d.finished_at ? d.finished_at * 1000 : null;
     updateElapsed();
     $("cost").textContent = `$${d.cost.toFixed(2)}`;
+    $("tokens").textContent = tokenText(d.tokens);
+    $("tokens").title = tokenTitle(d.tokens);
     $("runDir").textContent = `Saved in ${d.run_dir}`;
 
     const idx = STEPS.findIndex(s => s[0] === d.step);
@@ -458,6 +469,40 @@
     input.hidden = known;
   }
   const OLD_DEFAULTS = ["google/gemini-3-flash-preview"];
+  const OLD_WRITERS = ["thinkingmachines/inkling-2-small"];
+
+  // Price per 1M tokens under each model box (from OpenRouter's public list)
+  let prices = null;
+  const money = (x) => "$" + (x >= 0.1 || x === 0 ? x.toFixed(2) : String(+x.toFixed(3)));  // $0.10, $1.00, $0.075
+  function priceText(model) {
+    if (!model) return "";
+    if (model.startsWith("ollama/")) return "Free: runs on your computer.";
+    if (!prices) return "";
+    const p = prices[model];
+    if (!p) return "Price not listed on OpenRouter.";
+    return `${money(p.input)} input · ${money(p.output)} output per 1M tokens`;
+  }
+  function showPrices() {
+    for (const id of ["writer_model", "search_model"]) $(id + "Price").textContent = priceText($(id).value.trim());
+  }
+  for (const id of ["writer_model", "search_model"]) {
+    $(id).addEventListener("change", showPrices);
+    $(id).addEventListener("input", showPrices);
+  }
+  $("reasoning").addEventListener("change", () => store.set("reasoning", $("reasoning").value));
+
+  // "128K in · 41K out (12K reasoning)"
+  const fmtK = (n) => { n = n || 0; return n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M" : n >= 1000 ? (n / 1000).toFixed(n >= 1e4 ? 0 : 1) + "K" : String(n); };
+  function tokenText(t) {
+    if (!t || !(t.input || t.output)) return "0";
+    const s = `${fmtK(t.input)} in · ${fmtK(t.output)} out`;
+    return t.reasoning ? `${s} (${fmtK(t.reasoning)} reasoning)` : s;
+  }
+  function tokenTitle(t) {
+    if (!t) return "";
+    return `${(t.input || 0).toLocaleString()} input tokens, ${(t.output || 0).toLocaleString()} output tokens` +
+      (t.reasoning ? `, of which ${t.reasoning.toLocaleString()} reasoning (billed as output)` : "");
+  }
   async function loadPapers() {
     const d = await fetch("/api/projects").then(r => r.json()).catch(() => ({ projects: [] }));
     const ul = $("papers"); ul.innerHTML = "";
@@ -643,6 +688,7 @@ It's moved to the runs/_deleted folder, so you can still get it back from there.
       renderAttachments();
     }
     $("edModel").value = store.get("editor_model") || store.get("writer_model") || defaultModel;
+    $("edReasoning").value = store.get("editor_reasoning") ?? store.get("reasoning") ?? "";
     syncModelPicker("edModel");
     $("zipLink").href = `/api/projects/${id}/zip`;
     $("pdfLink").hidden = true;
@@ -702,7 +748,9 @@ It's moved to the runs/_deleted folder, so you can still get it back from there.
     const d = ed.data; if (!d) return;
     $("edTitle").textContent = d.title;
     document.title = `${d.title} · PaperScriptor`;
-    $("edCost").textContent = `$${d.cost.toFixed(d.cost < 0.1 ? 3 : 2)}`;
+    const tk = d.tokens || {};
+    $("edCost").textContent = `$${d.cost.toFixed(d.cost < 0.1 ? 3 : 2)}` + (tk.input || tk.output ? ` · ${fmtK((tk.input || 0) + (tk.output || 0))} tokens` : "");
+    $("edCost").title = "OpenRouter cost of this chat so far" + (tk.input || tk.output ? `: ${tokenTitle(tk)}` : "");
     $("versionSel").innerHTML = d.versions.slice().reverse().map(v =>
       `<option value="${v.n}">${v.n === d.version ? "Current: " : ""}v${v.n} · ${escapeHtml(v.note)}</option>`).join("");
     $("versionSel").value = String(d.version);
@@ -1391,6 +1439,7 @@ It's moved to the runs/_deleted folder, so you can still get it back from there.
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!ed.busy) $("composer").requestSubmit(); }
   });
   $("edModel").addEventListener("change", () => store.set("editor_model", $("edModel").value.trim()));
+  $("edReasoning").addEventListener("change", () => store.set("editor_reasoning", $("edReasoning").value));
   $("composer").addEventListener("submit", (e) => {
     e.preventDefault();
     if (ed.busy) { stopChat(); return; }
@@ -1444,6 +1493,7 @@ It's moved to the runs/_deleted folder, so you can still get it back from there.
       const d = await api("/chat", {
         message: text, selection, open_path: selFile || ed.open || "", attachments: atts,
         model: $("edModel").value.trim(),
+        reasoning: $("edReasoning").value,
         api_key: $("api_key").value.trim() || store.get("api_key") || "",
       });
       if (ed.id === id) ed.data = d;

@@ -15,6 +15,7 @@ Examples
   paperscriptor export last -o paper.zip
   paperscriptor serve
   paperscriptor ask last "Tighten the intro" --model ollama/qwen3:14b   # fully local
+  paperscriptor write my_study_folder/ --reasoning low                  # think less, pay less
 
 PROJECT can be "last" (the most recently changed paper), a full id from `list`, or its start or end
 (e.g. the last 8 characters).
@@ -37,6 +38,11 @@ if hasattr(sys.stdout, "reconfigure"):
 
 class CliError(Exception):
     pass
+
+
+EFFORT_CHOICES = ["default", *llm.EFFORTS]
+EFFORT_HELP = ("how long the model thinks before answering: default lets the model decide; none is cheapest, "
+               "high costs more output tokens. Ignored by models without reasoning and by local models")
 
 
 # --------------------------------------------------------------------------- #
@@ -149,7 +155,7 @@ def cmd_write(args):
             api_key=need_key(args, args.writer, *([] if args.no_literature else [args.searcher])), writer_model=args.writer, search_model=args.searcher, template=template,
             template_rules=args.rules or "", cutoff=args.cutoff or "", use_literature=not args.no_literature,
             use_web=args.web and not args.no_literature, refine_rounds=args.rounds,
-            max_searches=args.max_searches, budget=args.budget,
+            max_searches=args.max_searches, budget=args.budget, reasoning=args.reasoning,
             s2_api_key=os.environ.get("SEMANTIC_SCHOLAR_API_KEY", ""), openalex_api_key=os.environ.get("OPENALEX_API_KEY", ""),
             materials={"idea": "\n\n".join(idea_parts), "experimental_log": "\n\n".join(log_parts), "documents": docs},
             figures=figures, template_uploads=uploads)
@@ -248,7 +254,7 @@ def cmd_ask(args):
     def work():
         try:
             result["d"] = workspace.chat(run, args.message, args.selection or "", args.file or "", model,
-                                         need_key(args, model), attachments)
+                                         need_key(args, model), attachments, args.reasoning)
         except (workspace.WorkspaceError, CliError) as e:
             error["e"] = str(e)
 
@@ -274,14 +280,14 @@ def cmd_ask(args):
     if m.get("version"):
         diff = m["diff"]
         print(f"\nChanged {', '.join(diff['files'])} (+{diff['added']} -{diff['removed']} lines), now version {m['version']}."
-              f" Cost ${m.get('cost', 0):.4f}.")
+              f" Cost ${m.get('cost', 0):.4f} for {llm.token_summary(m.get('tokens'))}.")
         if args.diff:
             print("\n" + diff["text"])
         if not args.no_compile and d["latex"]["engine"]:
             print()
             print_compile(workspace.compile_run(run))
     else:
-        print(f"\nNo files changed. Cost ${m.get('cost', 0):.4f}.")
+        print(f"\nNo files changed. Cost ${m.get('cost', 0):.4f} for {llm.token_summary(m.get('tokens'))}.")
     return 1 if m.get("error") else 0
 
 
@@ -367,6 +373,7 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--writer", default=config.DEFAULT_WRITER,
                    help=f"writing model (default {config.DEFAULT_WRITER}); ollama/<model> runs locally")
     w.add_argument("--searcher", default=config.DEFAULT_SEARCH, help=f"paper-search model (default {config.DEFAULT_SEARCH})")
+    w.add_argument("--reasoning", choices=EFFORT_CHOICES, default="default", help=EFFORT_HELP)
     w.add_argument("--cutoff", help="only cite papers up to this month, e.g. 2025-06")
     w.add_argument("--rounds", type=int, default=1, help="review-and-refine rounds, 0 to 3 (default 1)")
     w.add_argument("--no-literature", action="store_true", help="don't search for and cite papers")
@@ -396,6 +403,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--selection", help="a passage you want changed (copied from the file)")
     a.add_argument("--attach", action="append", metavar="FILE", help="attach notes, results or reviews; repeatable")
     a.add_argument("--model", help=f"model to use (default {config.DEFAULT_WRITER}); ollama/<model> runs locally")
+    a.add_argument("--reasoning", choices=EFFORT_CHOICES, default="default", help=EFFORT_HELP)
     a.add_argument("--diff", action="store_true", help="print the exact changes")
     a.add_argument("--no-compile", action="store_true", help="don't recompile after a change")
     a.set_defaults(func=cmd_ask)

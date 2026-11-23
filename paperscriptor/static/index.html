@@ -49,8 +49,8 @@
 <div class="wrap" id="home">
   <header>
     <h1>Write a research paper</h1>
-    <p class="lede">Turn your idea and experiment notes into a LaTeX paper. Four agents run in order:
-      outline, literature review, section writing, then review and refinement.</p>
+    <p class="lede">Turn your idea and experiment notes into a LaTeX paper. The steps run in order:
+      outline, literature review, section writing, review and refinement, then a fact check against your notes.</p>
   </header>
 
 <div class="layout">
@@ -74,12 +74,28 @@
           <div class="field">
             <label for="writer_model">Writing model</label>
             <input type="text" id="writer_model" name="writer_model" spellcheck="false">
+            <p class="hint price" id="writer_modelPrice"></p>
             <p class="hint">Writes the outline, sections and revisions. <span id="localHint">For a local model, use <code>ollama/&lt;model&gt;</code>.</span></p>
           </div>
           <div class="field">
             <label for="search_model">Paper-search model</label>
             <input type="text" id="search_model" name="search_model" spellcheck="false">
+            <p class="hint price" id="search_modelPrice"></p>
             <p class="hint">Suggests papers to cite. A cheap model is fine; Inkling 2 Small knows paper titles well.</p>
+          </div>
+        </div>
+        <div class="row two">
+          <div class="field">
+            <label for="reasoning">Reasoning effort</label>
+            <select id="reasoning" name="reasoning">
+              <option value="">Model default</option>
+              <option value="none">Off · cheapest</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High · most thinking</option>
+            </select>
+            <p class="hint">How long the model thinks before writing. Thinking is billed as output tokens, so more
+              effort costs more. Ignored by models without reasoning.</p>
           </div>
         </div>
       </section>
@@ -222,7 +238,8 @@
         <div id="progress" hidden>
           <p class="status-line" id="statusLine" aria-live="polite"></p>
           <ol class="steps" id="steps"></ol>
-          <div class="meta"><span>Cost so far: <b id="cost">$0.00</b></span><span>Elapsed: <b id="elapsed">0:00</b></span></div>
+          <div class="meta"><span>Cost so far: <b id="cost">$0.00</b></span><span>Elapsed: <b id="elapsed">0:00</b></span>
+            <span>Tokens: <b id="tokens">0</b></span></div>
           <div class="files" id="files"></div>
           <pre class="log" id="log" role="log" aria-label="Run log" tabindex="0"></pre>
           <p class="hint" id="runDir"></p>
@@ -337,6 +354,14 @@
         <div class="composer-meta">
           <label for="edModel">Model</label>
           <input type="text" id="edModel" spellcheck="false">
+          <label for="edReasoning" class="sr-only">Reasoning effort</label>
+          <select id="edReasoning" class="effort" title="Reasoning effort: how long the model thinks before answering">
+            <option value="">Default effort</option>
+            <option value="none">No thinking</option>
+            <option value="low">Low effort</option>
+            <option value="medium">Medium effort</option>
+            <option value="high">High effort</option>
+          </select>
         </div>
       </form>
     </section>
