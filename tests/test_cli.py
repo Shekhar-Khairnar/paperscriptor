@@ -125,5 +125,19 @@ assert cfg["template_dir"].endswith(os.path.join("templates", "nature"))
 code, out = run("write", os.path.join(TMP, "no_such_folder"))
 assert code == 2 and "not a folder" in out
 
+# A folder with one combined notes file: it is both the idea and the results
+single = os.path.join(TMP, "_single"); os.makedirs(single)
+open(os.path.join(single, "notes.md"), "w").write("Idea: CheckNet. Results: F1 88.1 vs 84.0.")
+code, out = run("write", single, "--rounds", "0")
+assert code == 0, out
+assert "F1 88.1" in called["cfg"]["idea"] and "F1 88.1" in called["cfg"]["experimental_log"], called["cfg"]["experimental_log"]
+assert "notes.md (both)" in out, out
+from paperscriptor import ingest  # the web form: one document left as "Idea" still reaches the writer as results
+idea_md, log_md = ingest.combine_materials("", "", [{"name": "notes.pdf", "role": "idea", "text": "F1 88.1"}])
+assert "F1 88.1" in idea_md and "F1 88.1" in log_md, log_md
+idea_md, log_md = ingest.combine_materials("", "", [{"name": "a.md", "role": "idea", "text": "Idea"},
+                                                    {"name": "r.csv", "role": "results", "text": "f1,88.1"}])
+assert "Idea" not in log_md and "88.1" in log_md
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("ALL CLI TESTS PASSED")

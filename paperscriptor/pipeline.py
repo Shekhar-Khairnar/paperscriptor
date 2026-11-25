@@ -18,6 +18,7 @@ import shutil
 import time
 import traceback
 import zipfile
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import json_repair
@@ -122,6 +123,18 @@ def fix_citations(tex: str, valid_keys: set, job: Job) -> str:
 # --------------------------------------------------------------------------- #
 # Literature agent helpers (ported from HybridLiteratureAgent)
 # --------------------------------------------------------------------------- #
+MAX_LIBRARY = 40  # verified papers handed to the writers; ~70 led to 60+ references cited in padded clusters
+
+
+def trim_library(papers: list, limit: int = MAX_LIBRARY) -> list:
+    """Keep at most `limit` papers: those found for citations the outline names first, then the most cited,
+    in their original order."""
+    if len(papers) <= limit:
+        return papers
+    keep = {id(p) for p in sorted(papers, key=lambda p: (not p.get("targeted"), -(p.get("citation_count") or 0)))[:limit]}
+    return [p for p in papers if id(p) in keep]
+
+
 def limit_search_tasks(tasks: list, limit: int) -> list:
     """Keep at most `limit` searches: drop near-duplicates, then prefer must-have citations, then the
     introduction, then related work, taking them round-robin across sections so no section is left out."""
@@ -282,6 +295,22 @@ def _better_or_equal(new, old):
 # --------------------------------------------------------------------------- #
 # Main pipeline
 # --------------------------------------------------------------------------- #
+def _body(tex: str) -> str:
+    m = re.search(r"\\begin\{document\}(.*)\\end\{document\}", tex, re.S)
+    return m.group(1) if m else tex
+
+
+def lost_content(old: str, new: str) -> str:
+    """Why a revision is unacceptable whatever its review score ('' if it is fine): it dropped figures or tables,
+    or a large part of the text. A reviser that deletes results can please a reviewer while ruining the paper."""
+    for pattern, what in ((r"\\includegraphics", "figures"), (r"\\begin\{table\*?\}", "tables")):
+        if len(re.findall(pattern, new)) < len(re.findall(pattern, old)):
+            return f"revision dropped {what}"
+    if len(_body(new)) < 0.8 * len(_body(old)):
+        return f"revision cut the text to {len(_body(new)) * 100 // max(1, len(_body(old)))}%"
+    return ""
+
+
 def _write(path, text):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -310,6 +339,17 @@ def _latex_call(llm, job, model, system, user, images=(), temperature=0.7, label
 # --------------------------------------------------------------------------- #
 FIDELITY_RULES = r"""
 ### FIDELITY RULES (follow strictly)
+- The authors' materials are the results of this study. Report the main results, tables and figures as this paper's
+  findings. If the materials call the data synthetic, simulated or hypothetical, say so plainly (once in the
+  abstract, once in the limitations), but still present every result; never drop results, tables or figures for it.
+  If the materials call themselves a fixture, test case or writing exercise, write the research paper the study
+  describes (its question, method and findings) on that synthetic data; never make the paper about being a fixture.
+- State results in plain declarative voice ("X reaches 91.6% accuracy"), never as "stipulated", "assigned",
+  "specified" or "reported" values; the one synthetic-data statement in the abstract and limitations covers them.
+- The figure files in the figures list are part of this paper, even if the notes say figures are missing. Describe
+  each figure in one or two sentences where the results discuss it, using only its caption and the data.
+- Write the paper itself, never about it: no mentions of "the supplied materials", "the source tables", "the notes",
+  "this draft" or the writing process. Refer to tables and figures with \ref.
 - Figure captions and figure descriptions: say only what the author's caption and data say. Never mention visual
   details (colours, arrows, dashed lines, annotations, panels, markers) that you were not told about.
 - Every conclusion must follow from a comparison that was actually run in the experimental log. Do not generalise
@@ -327,7 +367,8 @@ FIDELITY_RULES = r"""
 CLAIM_CHECK_SYSTEM = """You are a meticulous scientific fact-checker. You compare a LaTeX manuscript with the authors' own
 materials and fix only statements that the evidence does not support. You do not rewrite for style."""
 
-CHECK_TYPES = {"number", "figure", "overreach", "mechanism", "absolute", "repetition", "missing"}
+CHECK_TYPES = {"number", "figure", "overreach", "mechanism", "absolute", "repetition", "missing", "meta",
+               "missing_result", "figure_ref", "citation", "broken"}  # the last four come from the whole-paper editor pass
 
 
 def _replace_once(text: str, old: str, new: str) -> str | None:
@@ -368,6 +409,10 @@ def _abstract(tex: str) -> str:
     return ""
 
 
+STRUCTURE_RE = re.compile(r"\\includegraphics(?:\[[^\]]*\])?\{[^}]*\}|\\label\{[^}]*\}|\\(?:[cC]ref|autoref|ref)\{[^}]*\}"
+                          r"|\\(?:begin|end)\{(?:figure|table)\*?\}")
+
+
 def _apply_fixes(part: str, issues: list) -> tuple[str, int]:
     """Apply the checker's fixes to one part. Never touches author placeholders or the document frame.
     Returns (new_part, number applied), or (part, -1) if the fixes would break the document."""
@@ -378,9 +423,11 @@ def _apply_fixes(part: str, issues: list) -> tuple[str, int]:
             continue
         if PLACEHOLDER_RE.search(old) or AUTHOR_NOTE_RE.search(old):
             continue  # only the authors can fill these in; they stay visible and go to TODO.md
+        if Counter(STRUCTURE_RE.findall(old)) - Counter(STRUCTURE_RE.findall(fix)):
+            continue  # a sentence fix never removes figures, tables, labels or references
         cites = re.findall(r"\\cite[a-zA-Z]*\*?(?:\[[^\]]*\])*\{[^}]*\}", old)
         missing = [c for c in cites if c not in fix]
-        if fix and missing:  # never lose a citation while rewording
+        if fix and missing and kind != "citation":  # never lose a citation while rewording (unless that is the fix)
             end = len(fix.rstrip(" .")) if fix.rstrip().endswith(".") else len(fix)
             fix = fix[:end] + "~" + "".join(missing) + fix[end:]
         updated = _replace_once(new, old, fix)
@@ -394,6 +441,94 @@ def _apply_fixes(part: str, issues: list) -> tuple[str, int]:
                 issue.pop("applied", None)
             return part, -1
     return new, applied
+
+
+REF_RE = re.compile(r"\\(?:[cC]ref|autoref|ref|pageref|subref)\*?\{([^}]*)\}")
+
+
+def unreferenced_labels(tex: str) -> list[str]:
+    """Figure and table labels that the text never references."""
+    refs = {k.strip() for m in REF_RE.finditer(tex) for k in m.group(1).split(",")}
+    labels = re.findall(r"\\label\{((?:fig|tab)[^}]*)\}", tex, re.I)
+    return [label for label in dict.fromkeys(labels) if label not in refs]
+
+
+def bib_titles(bib: str) -> str:
+    out = []
+    for e in re.split(r"(?m)^(?=@\w+\s*\{)", bib):
+        k = re.match(r"@\w+\s*\{\s*([^,\s]+)", e)
+        t = re.search(r"\btitle\s*=\s*[{\"](.+?)[}\"],?\s*$", e, re.M | re.S)
+        if k:
+            title = " ".join(re.sub(r"[{}]", "", t.group(1)).split()) if t else "?"
+            out.append(f"- {k.group(1)}: {title}")
+    return "\n".join(out)
+
+
+EDITOR_SYSTEM = """You are the senior co-author doing the final read of a whole manuscript before submission. You make a
+few targeted edits that need the whole paper in view; you never rewrite the paper."""
+
+
+def edit_paper(llm, job, model, tex, log_md, figures, bib):
+    """Whole-paper editor pass: repeated caveats, headline results never stated, unreferenced figures and tables,
+    citations that do not fit. Returns (new_tex, issues)."""
+    fig_ctx = "\n".join(f"- {f['name']}: {f['caption'] or '(no caption given)'}" for f in figures) or "(no figures)"
+    unref = unreferenced_labels(tex)
+    unref_note = ("These figure/table labels are never referenced in the text: " + ", ".join(unref)
+                  + ". Add a reference to each (same command the paper already uses, e.g. \\ref or \\Cref)."
+                  if unref else "All figures and tables are referenced.")
+    user = f"""--- AUTHORS' EXPERIMENTAL LOG (the only source of results) ---
+{log_md}
+
+--- FIGURES THE AUTHORS PROVIDED (file: caption) ---
+{fig_ctx}
+
+--- BIBLIOGRAPHY (key: title) ---
+{bib_titles(bib) or '(none)'}
+
+--- MANUSCRIPT (LaTeX) ---
+{tex}
+
+{unref_note}
+
+TASK: Read the whole manuscript and return up to 20 edits of these kinds:
+- "repetition": a caveat or limitation (for example synthetic data, one run, no significance tests, no mechanism
+  tested, "not a rate") stated again outside the abstract and the limitations. Delete the sentence (empty fix) or
+  cut it to the essential words. The abstract and the limitations keep it. Check the introduction, related work,
+  captions, results, discussion and conclusion; each caveat may appear at most twice in the whole paper.
+- "missing_result": go through every row of the log's main, sweep and ablation tables. Each of these must be stated
+  in the text: where the proposed method is worse than any baseline (name every baseline it trails, also on cost
+  such as latency or memory), where a trend or ordering changes (if it changes between two tested settings, say it
+  lies between them, not at the second one), and what the ablation shows the method beats. For each one missing,
+  "text" is an existing sentence on that topic and "fix" is the same sentence followed by one new sentence with the
+  exact numbers from the log.
+- "broken": an unfinished sentence, a sentence fragment, leftover template or instruction text, or a paragraph that
+  repeats another one. Complete it from the surrounding text or delete it.
+- "figure_ref": a figure or table that the text never references. Add the reference in the sentence about its content.
+- "citation": a \\cite used for a claim that the cited paper (judging by its title) clearly does not support. Remove
+  that key from the \\cite command and keep the others, or remove the whole \\cite if none fits.
+
+Return ONLY a JSON object:
+{{"issues": [{{"text": "exact text copied from the LaTeX (one sentence or clause, at most 500 characters)",
+  "type": "one of the types above", "why": "one short sentence", "fix": "replacement LaTeX; empty string to delete"}}]}}
+Rules: "text" must match the LaTeX exactly. Never change correct numbers, tables, the preamble, the bibliography,
+[AUTHOR: ...] notes or lines ending in "here.". Do not add hedges. If there is nothing to fix, return an empty list."""
+    try:
+        data = extract_json(llm.chat(model, EDITOR_SYSTEM, user, temperature=0.1)) or {}
+    except LLMError as e:
+        job.log(f"  ! Editor pass skipped: {e}")
+        return tex, []
+    issues = [x for x in (data.get("issues") or []) if isinstance(x, dict)][:20] if isinstance(data, dict) else []
+    new_tex, applied = _apply_fixes(tex, issues)
+    if applied < 0:
+        job.log("  ! Editor changes would break the document; keeping it unchanged.")
+        return tex, []
+    kinds = {}
+    for i in issues:
+        if i.get("applied"):
+            kinds[i.get("type")] = kinds.get(i.get("type"), 0) + 1
+    detail = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
+    job.log(f"  Editor pass: {applied} edit(s){f' ({detail})' if detail else ''}.")
+    return new_tex, issues
 
 
 def check_claims(llm, job, model, tex, idea, log_md, figures):
@@ -431,6 +566,11 @@ TASK: Find up to {limit} statements in the {"manuscript" if n == 1 else "part ab
 - "absolute": a categorical claim ("cannot", "always", "proves") that is not strictly true.
 - "repetition": the same caveat repeated in many places (keep the first and the limitations paragraph, shorten the others).
 - "missing": the paper says something exists (a file, code, dataset, experiment, setting) that is not in the materials.
+  The figure files listed above are part of the project: never remove \\includegraphics lines or figures.
+- "meta": the text talks about the authors' materials or the writing process instead of the study ("the supplied
+  evaluation", "the source tables", "the notes", "this draft", "the fixture", "test case", "teaching resource",
+  "software testing", values "stipulated" or "assigned");
+  rewrite it to state the fact about the study directly.
 
 Return ONLY a JSON object:
 {{"issues": [{{"text": "exact text copied from the LaTeX (one sentence or clause, at most 400 characters)",
@@ -439,6 +579,7 @@ Return ONLY a JSON object:
  "author_todo": ["things only the authors can provide or decide, e.g. missing settings, files to add, statements to verify"]}}
 Rules: "text" must match the LaTeX exactly. Do not touch the preamble, correct numbers, tables of correct results or the
 bibliography. Hedge at most once per sentence; prefer narrowing a claim to what was tested over adding "may".
+Never add a caveat that the abstract or limitations already state (synthetic data, one run, no tests): narrow instead.
 Leave placeholders untouched (lines ending in "here." and [AUTHOR: ...] notes) and do not repeat them in author_todo;
 they are collected separately. If there are no problems, return empty lists."""
 
@@ -653,6 +794,7 @@ def _run(job: Job, cfg: dict):
                     "abstract": abstract[:1500] + ("... [Truncated]" if len(abstract) > 1500 else ""),
                     "citation_count": s2.get("citationCount") or 0,
                     "found_in_section": t["section"],
+                    "targeted": t.get("search_type") == "targeted",
                     "reason": c.get("reason", ""),
                     "journal": journal.get("name"),
                     "volume": journal.get("volume"),
@@ -661,7 +803,10 @@ def _run(job: Job, cfg: dict):
             if i % 10 == 0 or i == len(unique):
                 job.log(f"  Checked {i}/{len(unique)} · {len(registry)} verified papers "
                         f"(Semantic Scholar {by_source['Semantic Scholar']}, OpenAlex {by_source['OpenAlex']}).")
-        papers = list(registry.values())
+        papers = trim_library(list(registry.values()))
+        if len(papers) < len(registry):
+            job.log(f"  Keeping the {len(papers)} most relevant of {len(registry)} papers (named citations first, then the "
+                    "most cited), so the paper does not pad its references.")
         if not papers:
             job.log("  ! No papers could be verified (both paper databases may be rate-limiting). "
                     "The paper will be written without citations.")
@@ -682,7 +827,8 @@ def _run(job: Job, cfg: dict):
             "collected_papers": papers,
         }
         system = prompts.literature_review_agent_writter_prompt.format(
-            paper_count=len(papers), min_cite_paper_count=int(len(papers) * 0.9), cutoff_date=cutoff
+            # 0.6, not 0.9: requiring nearly every found paper produced padded clusters of loosely related citations
+            paper_count=len(papers), min_cite_paper_count=int(len(papers) * 0.6), cutoff_date=cutoff
         )
         current_tex = _latex_call(
             llm, job, writer, system,
@@ -750,6 +896,9 @@ Here are the input materials for the paper.
 4. Insert figures using the filenames from the 'figures_list' input.
 5. Use citations from the Reference Library.
 6. Return the **full** compilable LaTeX file.
+7. Include a short Discussion of what the results mean and a separate Limitations section (for journals without
+   one, a headed Limitations paragraph in the Discussion). Keep results out of Related Work. Make the
+   conclusion state every headline result, including costs (latency, memory, parameters) and where the method loses.
 {FIDELITY_RULES}"""
     current_tex = _latex_call(llm, job, writer, prompts.section_writing_agent_prompt, user,
                               images=image_paths, label="Section writing")
@@ -771,6 +920,8 @@ Here are the input materials for the paper.
             job.log(f"  Reviewer score for the first draft: {review.get('Overall')}/10")
             worklogs = []
             citations_json = json.dumps(citation_map, indent=2)
+            # the reviser must see the method notes too, or it "fixes" the method from the reviewer's guesses
+            idea_ctx = "" if idea.strip() == log_md.strip() else f"\n--- IDEA AND METHOD NOTES (Method Truth) ---\n{idea}\n"
             for i in range(1, rounds + 1):
                 job.check()
                 if over_budget(job, cfg):
@@ -788,7 +939,7 @@ REFLECTION ITERATION {i}.
 
 --- CONFERENCE GUIDELINES ---
 {guidelines}
-
+{idea_ctx}
 --- EXPERIMENTAL LOG (Data Truth) ---
 {log_md}
 
@@ -802,6 +953,8 @@ INSTRUCTION:
 1. Your goal is to IMPROVE the reviewer score (Current: {review.get('Overall')}).
 2. Address the 'Weaknesses' and 'Questions' in the Reviewer Feedback above.
 3. Output the JSON Worklog first, then the Full Revised LaTeX.
+4. Never delete results, tables, figures or sections. Fix weaknesses by clarifying, qualifying or adding discussion.
+   A weakness that would need new experiments or data you do not have goes into the limitations, honestly stated.
 {FIDELITY_RULES}"""
                 text = llm.chat(writer, prompts.content_refinement_agent_system_prompt, user)
                 new_tex = extract_latex(text)
@@ -815,10 +968,12 @@ INSTRUCTION:
                 if new_review is None:
                     job.log(f"  Round {i}: reviewer failed; keeping previous version.")
                     continue
-                accepted = _better_or_equal(new_review, review)
+                lost = lost_content(current_tex, new_tex)
+                accepted = _better_or_equal(new_review, review) and not lost
                 reviews.append({"version": f"v{i}", "review": new_review, "accepted": accepted, "worklog": worklog})
+                why = f"reverted ({lost})" if lost else "reverted (score dropped)"
                 job.log(f"  Round {i}: score {review.get('Overall')} -> {new_review.get('Overall')}/10 · "
-                        f"{'kept revision' if accepted else 'reverted (score dropped)'}")
+                        f"{'kept revision' if accepted else why}")
                 if accepted:
                     current_tex, review = new_tex, new_review
                     worklogs.append(worklog)
@@ -832,6 +987,10 @@ INSTRUCTION:
     report = {"issues": [], "applied": 0, "author_todo": []}
     if cfg.get("fact_check", True) and not over_budget(job, cfg):
         job.log(f"Step 5/6 · Fact check: comparing every claim with your materials ({writer})")
+        bib_path = os.path.join(paper_dir, "references.bib")
+        bib = open(bib_path, encoding="utf-8").read() if os.path.exists(bib_path) else ""
+        current_tex, edits = edit_paper(llm, job, writer, current_tex, log_md, figures, bib)  # before the check, which verifies added numbers
+        current_tex = fix_citations(current_tex, set(citation_map), job)
         current_tex, report = check_claims(llm, job, writer, current_tex, idea, log_md, figures)
         current_tex = fix_citations(current_tex, set(citation_map), job)
         kinds = {}
@@ -841,6 +1000,7 @@ INSTRUCTION:
         detail = ", ".join(f"{n} {k}" for k, n in sorted(kinds.items()))
         job.log(f"  Fixed {report['applied']} unsupported statement(s){f' ({detail})' if detail else ''}; "
                 f"{len(report['author_todo'])} item(s) for you in TODO.md.")
+        report["editor"] = edits
         _write(os.path.join(run, "fact_check.json"), json.dumps(report, indent=2))
         job.files["fact_check.json"] = os.path.join(run, "fact_check.json")
     else:

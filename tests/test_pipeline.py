@@ -57,7 +57,12 @@ def fake_post(url, headers=None, json=None, timeout=None):
         score = 5 if calls["review"] == 1 else 6
         return ok("THOUGHT: fine\nREVIEW JSON:\n```json\n" + J.dumps({"Overall": score, "Soundness": 3, "Weaknesses": ["w"], "Questions": ["q"]}) + "\n```")
     if system.startswith("Role: Senior AI Researcher.\nTask: Revise"):
-        return ok('```json\n{"actions_taken":["a"]}\n```\n```latex\n' + TEX % r"Refined \cite{He2016DeepResidual} \cite{Nope1999}" + "\n```")
+        assert "IDEA AND METHOD NOTES" in user and "My idea" in user     # the reviser sees the method notes too
+        return ok('```json\n{"actions_taken":["a"]}\n```\n```latex\n' + TEX % r"Refined \cite{He2016DeepResidual} \cite{Nope1999} \includegraphics{figures/fig_one.png}" + "\n```")
+    if system.startswith(pipeline.EDITOR_SYSTEM[:40]):
+        calls["editor"] = calls.get("editor", 0) + 1
+        assert "acc 91.2" in user and "He2016DeepResidual: Deep Residual Learning" in user, user[-3000:]
+        return ok('```json\n{"issues": []}\n```')
     if system.startswith(pipeline.CLAIM_CHECK_SYSTEM[:40]):
         calls["check"] = calls.get("check", 0) + 1
         assert "acc 91.2" in user and "Accuracy plot" in user        # checks against the author's materials
@@ -108,7 +113,7 @@ z = zipfile.ZipFile(io.BytesIO(c.get(f"/api/jobs/{jid}/files/paper.zip").content
 names = sorted(z.namelist())
 main = z.read("main.tex").decode(); bib = z.read("references.bib").decode()
 assert "Nope1999" not in main and "He2016DeepResidual" in main
-assert calls.get("check") == 1, calls
+assert calls.get("check") == 1 and calls.get("editor") == 1, calls
 assert r"Checked~\cite{He2016DeepResidual}" in main, main                # fix applied, citation kept
 assert "Vaswani2017AttentionAll" not in bib and bib.count("@") == 1, bib  # uncited paper trimmed
 assert "TODO.md" in names
@@ -158,6 +163,47 @@ assert "\\abstract{We report 88.1\\% F1 \\{sic\\}.}%%% SUMMARY %%%" in fixed, fi
 assert "\\newcommand{\\note}[1]{%\n" in fixed and pipeline._abstract(fixed) == "We report 88.1\\% F1 \\{sic\\}."
 assert pipeline.close_commented_braces(fixed) == fixed
 assert pipeline.extract_latex("```latex\n" + broken + "\n```").count("sic\\}.}%") == 1     # applied to model output
+
+# Sentences about the authors' materials instead of the study are rewritten ("meta")
+new, n = pipeline._apply_fixes("The supplied evaluation reports 91.6% accuracy.",
+                               [{"text": "The supplied evaluation reports 91.6% accuracy.", "type": "meta", "fix": "MarginRoute reaches 91.6% accuracy."}])
+assert n == 1 and new == "MarginRoute reaches 91.6% accuracy.", new
+
+# Editor pass helpers: unreferenced figures/tables, bibliography titles, removing a citation that does not fit
+T = (r"\begin{figure}\includegraphics{a}\label{fig:main}\end{figure}\begin{figure}\label{fig:blur}\end{figure}"
+     r"\begin{table}\label{tab:res}\end{table}\label{sec:x} See \Cref{fig:blur} and Table~\ref{tab:res,sec:x}.")
+assert pipeline.unreferenced_labels(T) == ["fig:main"], pipeline.unreferenced_labels(T)
+assert pipeline.bib_titles("@article{A1,\n  title = {{Deep} Residual\n  Learning},\n  year={2016}\n}\n@misc{B2,\n year={1}\n}\n") == \
+    "- A1: Deep Residual Learning\n- B2: ?"
+SENT = r"Drying pulses release carbon~\cite{Birch1958,Davidson2006}."
+new, n = pipeline._apply_fixes(SENT, [{"text": SENT, "type": "citation", "fix": r"Drying pulses release carbon~\cite{Birch1958}."}])
+assert n == 1 and new == r"Drying pulses release carbon~\cite{Birch1958}.", new
+lib = [{"title": f"P{i}", "targeted": i == 7, "citation_count": i} for i in range(50)]   # citation library cap
+kept = pipeline.trim_library(lib)
+assert len(kept) == 40 and kept[0]["title"] == "P7" and lib[49] in kept and lib[0] not in kept and lib[8] not in kept
+assert [p["title"] for p in kept] == sorted((p["title"] for p in kept), key=lambda t: int(t[1:]))   # original order kept
+assert pipeline.trim_library(lib[:5]) == lib[:5]
+IMG = r"\includegraphics[width=\linewidth]{figures/fig1_accuracy_by_domain.png}"   # the check once deleted these as "missing"
+new, n = pipeline._apply_fixes("x " + IMG + " y", [{"text": IMG, "type": "missing", "fix": ""},
+                                                  {"text": r"As Table~\ref{tab:main} shows, on synthetic data", "type": "repetition", "fix": ""}])
+assert n == 0 and IMG in new, new
+class FakeEditor:
+    def chat(self, model, system, user, temperature=0.7, **kw):
+        assert "fig:main" in user and "never referenced" in user
+        return json.dumps({"issues": [{"text": "Results are good.", "type": "figure_ref",
+                                       "fix": r"Results are good (Fig.~\ref{fig:main})."}]})
+ed_job = llm.Job("ed", tempfile.mkdtemp())
+out, issues = pipeline.edit_paper(FakeEditor(), ed_job, "m", r"\documentclass{article}\begin{document}" + T + r" Results are good.\end{document}", "log", [], "")
+assert r"Results are good (Fig.~\ref{fig:main})." in out and pipeline.unreferenced_labels(out) == [], out
+assert any("Editor pass: 1 edit(s) (1 figure_ref)" in l for l in ed_job.logs), ed_job.logs
+
+# A revision that deletes figures, tables or most of the text is rejected even if the reviewer likes it
+DOC = "\\documentclass{article}\n\\begin{document}\n%s\n\\end{document}"
+full = DOC % ("Results text. " * 40 + "\\begin{table}x\\end{table}\\includegraphics{figures/a.png}")
+assert pipeline.lost_content(full, full) == ""
+assert pipeline.lost_content(full, DOC % ("Results text. " * 40 + "\\begin{table}x\\end{table}")) == "revision dropped figures"
+assert pipeline.lost_content(full, DOC % ("Results text. " * 40 + "\\includegraphics{figures/a.png}")) == "revision dropped tables"
+assert "cut the text" in pipeline.lost_content(full, DOC % ("Short. \\begin{table}x\\end{table}\\includegraphics{figures/a.png}"))
 
 # A model that spends its whole output allowance thinking is retried once, not five times
 cut = {"n": 0}

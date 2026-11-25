@@ -1,5 +1,5 @@
 """Local models through Ollama, with a fake Ollama server (no network). Run: python tests/test_ollama.py"""
-import io, json, os, sys, tempfile, zipfile
+import io, json, os, sys, tempfile, time, zipfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.pop("OPENROUTER_API_KEY", None)
 os.environ["OPENROUTER_API_KEY"] = ""          # prove that local models need no OpenRouter key
@@ -88,6 +88,11 @@ r = c.post("/api/jobs", data={"api_key": "", "writer_model": "ollama/qwen3:14b",
                               "use_literature": "false", "refine_rounds": "0"},
            files=[("materials", ("m.json", json.dumps({"idea": "idea", "experimental_log": "acc 91", "documents": []}), "application/json"))])
 assert r.status_code == 200, r.text
+job_id = r.json()["id"]
+for _ in range(300):  # let the job finish first: it shares SCRIPT with the chat test below
+    if c.get(f"/api/jobs/{job_id}").json()["status"] in ("done", "error", "cancelled"):
+        break
+    time.sleep(0.1)
 r = c.post("/api/jobs", data={"api_key": "", "writer_model": "ollama/qwen3:14b", "search_model": "google/gemini-3-flash-preview"},
            files=[("materials", ("m.json", json.dumps({"idea": "idea"}), "application/json"))])
 assert r.status_code == 400 and "local models" in r.json()["detail"]   # cloud search model still needs a key

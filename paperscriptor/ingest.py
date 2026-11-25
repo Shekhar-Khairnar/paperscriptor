@@ -99,6 +99,7 @@ def combine_materials(idea: str, log: str, documents: list) -> tuple[str, str]:
     """Merge the text boxes with uploaded documents into idea.md / experimental_log.md."""
     idea_parts = [idea.strip()] if idea.strip() else []
     log_parts = [log.strip()] if log.strip() else []
+    idea_docs = []
     for doc in documents:
         text = (doc.get("text") or "").strip()
         if not text:
@@ -107,8 +108,12 @@ def combine_materials(idea: str, log: str, documents: list) -> tuple[str, str]:
         role = doc.get("role", "idea")
         if role in ("idea", "both"):
             idea_parts.append(block)
+        if role == "idea":
+            idea_docs.append(block)
         if role in ("results", "both"):
             log_parts.append(block)
+    if not log_parts and idea_docs:  # notes documents often hold the results too; never leave the writer without them
+        log_parts = idea_docs
     idea_md = "\n\n---\n\n".join(idea_parts)
     log_md = "\n\n---\n\n".join(log_parts)
     if not idea_md and not log_md:
@@ -354,7 +359,10 @@ def collect_folder(folder: str) -> dict:
             skipped.append((rel, "not a supported document or figure type"))
     if not docs:
         raise InputError(f"No readable documents (md, txt, pdf, docx, csv, json...) were found in '{folder}'.")
-    notes = [f"{len(docs)} document(s): " + ", ".join(f"{d['name']} ({d['role']})" for d in docs)]
+    if len({d["role"] for d in docs}) == 1:  # e.g. one notes PDF with both the idea and the results
+        for d in docs:
+            d["role"] = "both"
+    notes =[f"{len(docs)} document(s): " + ", ".join(f"{d['name']} ({d['role']})" for d in docs)]
     if figs:
         notes.append(f"{len(figs)} figure(s): " + ", ".join(f"{n}{'' if c else ' (no caption)'}" for n, _, c in figs))
     return {"documents": docs, "figures": figs, "skipped": skipped, "notes": notes}

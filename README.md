@@ -57,9 +57,12 @@ have installed.
 - **Point it at a folder** of notes, results and figures: documents are read, images become figures, and captions
   come from any file with "caption" in its name. Or add files one by one: Markdown, PDF, Word, CSV, JSON, LaTeX.
 - Templates: ICLR 2025, CVPR 2025, Nature (Springer Nature), or **your own journal kit** (.zip / folder).
-- Tables use only your numbers. A revision is kept only if the AI reviewer's score doesn't drop.
+- Tables use only your numbers. A revision is kept only if the AI reviewer's score doesn't drop and it keeps every
+  figure, table and most of the text.
 - Pick the **reasoning effort** (off, low, medium, high). Each model shows its price per 1M input and output tokens,
   and the run shows the tokens it used, so you can see what the model and the effort cost.
+- An **editor pass** reads the whole paper and removes repeated caveats, adds headline results the text left out
+  (including where your method loses) and references every figure and table.
 - A **fact check** compares every claim with your notes and tones down what they don't support (overreaching
   conclusions, invented figure details, repeated caveats). What only you can provide goes into `TODO.md`.
 
@@ -95,7 +98,8 @@ paperscriptor ask last "Fix the grammar" --model ollama/qwen3:14b   # fully loca
 2. **Literature agent:** suggests papers, verifies each one, builds `references.bib`, writes the Intro and Related Work.
 3. **Section agent:** writes method, experiments and tables from your results.
 4. **Review and refine:** an AI reviewer scores the draft; the writer revises; worse revisions are discarded.
-5. **Fact check:** compares the paper with your notes in parts, tones down unsupported claims, writes `TODO.md`.
+5. **Edit and fact check:** a whole-paper editor pass, then a check of the paper against your notes in parts that
+   tones down unsupported claims; writes `TODO.md`.
 6. **Package:** strips unknown citations, compiles the PDF, zips the project.
 
 In the editor, the model replies with small search-and-replace edits per file. PaperScriptor applies them, rejects
